@@ -1,0 +1,82 @@
+name: Run Non-Headless Selenium Scraper
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: 
+
+jobs:
+  scrape:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Repository Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install selenium beautifulsoup4
+
+    - name: Configure Virtual Desktop Resolution
+      run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      shell: powershell
+
+    # --- THIS STEP CREATES YOUR PYTHON FILE DIRECTLY ---
+    - name: Create Python Script File
+      shell: powershell
+      run: |
+        @'
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.support.ui import WebDriverWait
+        from bs4 import BeautifulSoup
+        import time
+        from selenium.webdriver.common.keys import Keys
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.webdriver.common.by import By
+
+        chrome_options = Options()
+
+        # Critical non-headless cloud flags
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--start-maximized')
+        chrome_options.add_argument('--disable-gpu')
+
+        # Stealth arguments
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+
+        # Initialize driver
+        driver = webdriver.Chrome(options=chrome_options)
+
+        # Execute CDP commands to avoid detection
+        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+            "userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        })
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+        wait = WebDriverWait(driver, 30)
+        url = r"https://cefa.com"
+
+        print("Opening browser...")
+        driver.get(url)
+        time.sleep(5) # Let the page fully render
+
+        html = driver.page_source
+        soup = BeautifulSoup(html, 'html.parser')
+
+        print("successful")
+        driver.quit()
+        '@ | Out-File -FilePath inline_script.py -Encoding utf8
+
+    - name: Execute Scraper Script
+      run: python inline_script.py
