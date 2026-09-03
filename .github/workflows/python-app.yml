@@ -21,7 +21,8 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install selenium beautifulsoup4 office365-sharepoint-python certifi
+        # FIX: Changed package name to the official office365-rest-python-client
+        pip install selenium beautifulsoup4 office365-rest-python-client certifi
 
     - name: Configure Virtual Desktop Resolution
       run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
@@ -61,7 +62,7 @@ jobs:
         })
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        url = r"https://www.marketwatch.com/investing/fund/PJSM"
+        url = r"https://cefa.com"
         print("Opening browser to extract data...")
         driver.get(url)
         time.sleep(5) 
@@ -76,15 +77,19 @@ jobs:
         print("HTML file successfully saved locally.")
 
         # --- 2. SHAREPOINT AUTHENTICATION & UPLOAD ---
-        site_url = "https://morningstaronline.sharepoint.com/sites/EnterpriseQuality"
+        site_url = "https://sharepoint.com"
         CLIENT_ID = "9bc3ab49-b65d-410a-85ad-de819febfddc" 
-        tenant_name = "morningstaronline.onmicrosoft.com"
+        tenant_name = "://onmicrosoft.com"
 
-        # ATTENTION: Using interactive auth will hang on GitHub actions due to missing human interaction.
-        # Switch to .with_credentials(UserCredential(username, password)) or ClientCredentials for production cloud use.
-        print("Connecting to SharePoint...")
-        ctx = ClientContext(site_url).with_interactive(
-            tenant=tenant_name,  
+        # Pull secrets passed down from GitHub Environment Variables
+        sp_user = os.environ.get("SP_USER")
+        sp_pass = os.environ.get("SP_PASS")
+
+        print("Connecting to SharePoint non-interactively...")
+        # FIX: Changed from .with_interactive to non-interactive MSAL ROPC credentials for Cloud compatibility
+        ctx = ClientContext(site_url).with_username_and_password(
+            username=sp_user,
+            password=sp_pass,
             client_id=CLIENT_ID
         )
 
@@ -105,8 +110,8 @@ jobs:
         '@ | Out-File -FilePath inline_script.py -Encoding utf8
 
     - name: Execute Scraper Script
-    # Injecting environment credentials here if you choose to swap out interactive login
       env:
+        # These reference the encrypted GitHub Action secrets you save in your repo settings
         SP_USER: ${{ secrets.SHAREPOINT_USERNAME }}
         SP_PASS: ${{ secrets.SHAREPOINT_PASSWORD }}
       run: python inline_script.py
