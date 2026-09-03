@@ -76,10 +76,10 @@ jobs:
         print("HTML file successfully saved locally.")
 
         # --- 2. SHAREPOINT AUTHENTICATION & UPLOAD ---
-        site_url = "https://sharepoint.com"
-        CLIENT_ID = "9bc3ab49-b65d-410a-85ad-de819febfddc" 
-        tenant_name = "://onmicrosoft.com"
-
+		site_url = "https://morningstaronline.sharepoint.com/sites/EnterpriseQuality"   # not "https://sharepoint.com"
+		tenant_name = "morningstaronline.onmicrosoft.com"                               # not "://onmicrosoft.com"
+				
+		CLIENT_ID = "9bc3ab49-b65d-410a-85ad-de819febfddc" 
         sp_user = "neeraj.khadilkar@morningstar.com"#os.environ.get("SP_USER")
         sp_pass = "january@2026" #os.environ.get("SP_PASS")
 
@@ -88,12 +88,12 @@ jobs:
 
         print("Connecting to SharePoint non-interactively...")
         # Configured with positional formatting required by the library's method signature
-        ctx = ClientContext(site_url).with_username_and_password(
-            sp_user,
-            sp_pass,
-            tenant_name,
-            client_id=CLIENT_ID
-        )
+		ctx = ClientContext(site_url).with_username_and_password(
+			tenant=tenant_name,
+			client_id=CLIENT_ID,
+			username=sp_user,
+			password=sp_pass,
+		)
 
         web = ctx.web.get().execute_query()
         print(f"Authenticated successfully to site: {web.properties['Title']}")
