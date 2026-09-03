@@ -61,7 +61,7 @@ jobs:
         })
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        url = r"https://cefa.com"
+        url = r"https://www.marketwatch.com/investing/fund/PJSM"
         print("Opening browser to extract data...")
         driver.get(url)
         time.sleep(5) 
