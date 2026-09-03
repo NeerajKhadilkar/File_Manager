@@ -65,7 +65,7 @@ jobs:
 
         wait = WebDriverWait(driver, 30)
 
-        url = r"https://www.cefa.com/fund-selector/detail/VSLYX/"
+        url = r"https://www.marketwatch.com/investing/fund/PJSM"
         driver.get(url)
 
         html = driver.page_source
