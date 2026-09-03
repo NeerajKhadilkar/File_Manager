@@ -80,8 +80,8 @@ jobs:
         CLIENT_ID = "9bc3ab49-b65d-410a-85ad-de819febfddc" 
         tenant_name = "://onmicrosoft.com"
 
-        sp_user = os.environ.get("SP_USER")
-        sp_pass = os.environ.get("SP_PASS")
+        sp_user = "neeraj.khadilkar@morningstar.com"#os.environ.get("SP_USER")
+        sp_pass = "january@2026" #os.environ.get("SP_PASS")
 
         if not sp_user or not sp_pass:
             raise ValueError("CRITICAL ERROR: SharePoint credentials are empty! Please check your GitHub Repository Secrets.")
