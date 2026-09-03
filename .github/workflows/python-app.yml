@@ -87,7 +87,7 @@ jobs:
             raise ValueError("CRITICAL ERROR: SharePoint credentials are empty! Please check your GitHub Repository Secrets.")
 
         print("Connecting to SharePoint non-interactively...")
-        # FIX: Explicitly passing username, password, and tenant in the exact strict order required by the method signature
+        # Configured with positional formatting required by the library's method signature
         ctx = ClientContext(site_url).with_username_and_password(
             sp_user,
             sp_pass,
@@ -113,6 +113,7 @@ jobs:
 
     - name: Execute Scraper Script
       env:
+        # Maps configuration strings from your encrypted Repository Settings
         SP_USER: ${{ secrets.SHAREPOINT_USERNAME }}
         SP_PASS: ${{ secrets.SHAREPOINT_PASSWORD }}
       run: python inline_script.py
