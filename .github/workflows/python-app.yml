@@ -1,4 +1,4 @@
-name: Run Non-Headless Selenium Scraper
+name: Run Non-Headless Selenium Scraper & Upload to SharePoint
 
 on:
   push:
@@ -21,13 +21,12 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install selenium beautifulsoup4
+        pip install selenium beautifulsoup4 office365-sharepoint-python certifi
 
     - name: Configure Virtual Desktop Resolution
       run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
       shell: powershell
 
-    # --- THIS STEP CREATES YOUR PYTHON FILE DIRECTLY ---
     - name: Create Python Script File
       shell: powershell
       run: |
@@ -38,45 +37,76 @@ jobs:
         from selenium.webdriver.support.ui import WebDriverWait
         from bs4 import BeautifulSoup
         import time
-        from selenium.webdriver.common.keys import Keys
-        from selenium.webdriver.support import expected_conditions as EC
-        from selenium.webdriver.common.by import By
+        import os
+        import certifi
+        from office365.sharepoint.client_context import ClientContext
 
+        # Set up SSL bundles for the execution environment
+        os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+
+        # --- 1. SELENIUM BROWSER SCRAPING ---
         chrome_options = Options()
-
-        # Critical non-headless cloud flags
         chrome_options.add_argument('--window-size=1920,1080')
         chrome_options.add_argument('--start-maximized')
         chrome_options.add_argument('--disable-gpu')
-
-        # Stealth arguments
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 
-        # Initialize driver
         driver = webdriver.Chrome(options=chrome_options)
-
-        # Execute CDP commands to avoid detection
         driver.execute_cdp_cmd('Network.setUserAgentOverride', {
             "userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         })
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        wait = WebDriverWait(driver, 30)
-        url = r"https://cefa.com"
-
-        print("Opening browser...")
+        url = r"https://www.marketwatch.com/investing/fund/PJSM"
+        print("Opening browser to extract data...")
         driver.get(url)
-        time.sleep(5) # Let the page fully render
+        time.sleep(5) 
 
         html = driver.page_source
-        soup = BeautifulSoup(html, 'html.parser')
-
-        print("successful")
         driver.quit()
+
+        # Save the scraped HTML source locally
+        local_filename = "scraped_output.html"
+        with open(local_filename, "w", encoding="utf-8") as f:
+            f.write(html)
+        print("HTML file successfully saved locally.")
+
+        # --- 2. SHAREPOINT AUTHENTICATION & UPLOAD ---
+        site_url = "https://morningstaronline.sharepoint.com/sites/EnterpriseQuality"
+        CLIENT_ID = "9bc3ab49-b65d-410a-85ad-de819febfddc" 
+        tenant_name = "morningstaronline.onmicrosoft.com"
+
+        # ATTENTION: Using interactive auth will hang on GitHub actions due to missing human interaction.
+        # Switch to .with_credentials(UserCredential(username, password)) or ClientCredentials for production cloud use.
+        print("Connecting to SharePoint...")
+        ctx = ClientContext(site_url).with_interactive(
+            tenant=tenant_name,  
+            client_id=CLIENT_ID
+        )
+
+        web = ctx.web.get().execute_query()
+        print(f"Authenticated successfully to site: {web.properties['Title']}")
+
+        folder_relative_url = "/sites/EnterpriseQuality/Shared Documents/Benchmarking Project/2026/US OE/Data Extraction/Investment_coverage_extracted/inv_coverate_comparison/marketwatch"
+        target_folder = ctx.web.get_folder_by_server_relative_url(folder_relative_url)
+
+        # Read the local file binaries and upload to your shared drive
+        print(f"Uploading {local_filename} to SharePoint target directory...")
+        with open(local_filename, 'rb') as content_file:
+            file_content = content_file.read()
+            
+        target_folder.upload_file(local_filename, file_content).execute_query()
+        print("Upload successful! Validation complete.")
+
         '@ | Out-File -FilePath inline_script.py -Encoding utf8
 
     - name: Execute Scraper Script
+    # Injecting environment credentials here if you choose to swap out interactive login
+      env:
+        SP_USER: ${{ secrets.SHAREPOINT_USERNAME }}
+        SP_PASS: ${{ secrets.SHAREPOINT_PASSWORD }}
       run: python inline_script.py
