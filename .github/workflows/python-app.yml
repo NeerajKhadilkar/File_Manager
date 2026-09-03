@@ -3,7 +3,7 @@ name: Run Non-Headless Selenium Scraper & Upload to SharePoint
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
   scrape:
@@ -64,7 +64,7 @@ jobs:
         url = r"https://www.marketwatch.com/investing/fund/PJSM"
         print("Opening browser to extract data...")
         driver.get(url)
-        time.sleep(5) 
+        time.sleep(5)
 
         html = driver.page_source
         driver.quit()
@@ -76,24 +76,23 @@ jobs:
         print("HTML file successfully saved locally.")
 
         # --- 2. SHAREPOINT AUTHENTICATION & UPLOAD ---
-		site_url = "https://morningstaronline.sharepoint.com/sites/EnterpriseQuality"   # not "https://sharepoint.com"
-		tenant_name = "morningstaronline.onmicrosoft.com"                               # not "://onmicrosoft.com"
-				
-		CLIENT_ID = "9bc3ab49-b65d-410a-85ad-de819febfddc" 
-        sp_user = "neeraj.khadilkar@morningstar.com"#os.environ.get("SP_USER")
-        sp_pass = "january@2026" #os.environ.get("SP_PASS")
+        site_url = "https://morningstaronline.sharepoint.com/sites/EnterpriseQuality"
+        tenant_name = "morningstaronline.onmicrosoft.com"
+
+        CLIENT_ID = "9bc3ab49-b65d-410a-85ad-de819febfddc"
+        sp_user = "neeraj.khadilkar@morningstar.com"
+        sp_pass = "..."
 
         if not sp_user or not sp_pass:
             raise ValueError("CRITICAL ERROR: SharePoint credentials are empty! Please check your GitHub Repository Secrets.")
 
         print("Connecting to SharePoint non-interactively...")
-        # Configured with positional formatting required by the library's method signature
-		ctx = ClientContext(site_url).with_username_and_password(
-			tenant=tenant_name,
-			client_id=CLIENT_ID,
-			username=sp_user,
-			password=sp_pass,
-		)
+        ctx = ClientContext(site_url).with_username_and_password(
+            tenant=tenant_name,
+            client_id=CLIENT_ID,
+            username=sp_user,
+            password=sp_pass,
+        )
 
         web = ctx.web.get().execute_query()
         print(f"Authenticated successfully to site: {web.properties['Title']}")
@@ -105,15 +104,11 @@ jobs:
         print(f"Uploading {local_filename} to SharePoint target directory...")
         with open(local_filename, 'rb') as content_file:
             file_content = content_file.read()
-            
+
         target_folder.upload_file(local_filename, file_content).execute_query()
         print("Upload successful! Validation complete.")
 
         '@ | Out-File -FilePath inline_script.py -Encoding utf8
 
     - name: Execute Scraper Script
-      env:
-        # Maps configuration strings from your encrypted Repository Settings
-        SP_USER: ${{ secrets.SHAREPOINT_USERNAME }}
-        SP_PASS: ${{ secrets.SHAREPOINT_PASSWORD }}
       run: python inline_script.py
