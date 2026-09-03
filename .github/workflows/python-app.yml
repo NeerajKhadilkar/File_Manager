@@ -21,7 +21,6 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        # FIX: Changed package name to the official office365-rest-python-client
         pip install selenium beautifulsoup4 office365-rest-python-client certifi
 
     - name: Configure Virtual Desktop Resolution
@@ -81,15 +80,18 @@ jobs:
         CLIENT_ID = "9bc3ab49-b65d-410a-85ad-de819febfddc" 
         tenant_name = "://onmicrosoft.com"
 
-        # Pull secrets passed down from GitHub Environment Variables
         sp_user = os.environ.get("SP_USER")
         sp_pass = os.environ.get("SP_PASS")
 
+        if not sp_user or not sp_pass:
+            raise ValueError("CRITICAL ERROR: SharePoint credentials are empty! Please check your GitHub Repository Secrets.")
+
         print("Connecting to SharePoint non-interactively...")
-        # FIX: Changed from .with_interactive to non-interactive MSAL ROPC credentials for Cloud compatibility
+        # FIX: Explicitly passing username, password, and tenant in the exact strict order required by the method signature
         ctx = ClientContext(site_url).with_username_and_password(
-            username=sp_user,
-            password=sp_pass,
+            sp_user,
+            sp_pass,
+            tenant_name,
             client_id=CLIENT_ID
         )
 
@@ -99,7 +101,7 @@ jobs:
         folder_relative_url = "/sites/EnterpriseQuality/Shared Documents/Benchmarking Project/2026/US OE/Data Extraction/Investment_coverage_extracted/inv_coverate_comparison/marketwatch"
         target_folder = ctx.web.get_folder_by_server_relative_url(folder_relative_url)
 
-        # Read the local file binaries and upload to your shared drive
+        # Read local file binaries and upload to your shared drive
         print(f"Uploading {local_filename} to SharePoint target directory...")
         with open(local_filename, 'rb') as content_file:
             file_content = content_file.read()
@@ -111,7 +113,6 @@ jobs:
 
     - name: Execute Scraper Script
       env:
-        # These reference the encrypted GitHub Action secrets you save in your repo settings
         SP_USER: ${{ secrets.SHAREPOINT_USERNAME }}
         SP_PASS: ${{ secrets.SHAREPOINT_PASSWORD }}
       run: python inline_script.py
