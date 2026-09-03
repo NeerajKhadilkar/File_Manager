@@ -110,7 +110,7 @@ jobs:
                 print(str(e))
                 print("couldn't send email.")
 
-        SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY")
+        SENDGRID_API_KEY = "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" # os.environ.get("SENDGRID_API_KEY")
         RECIPIENT_EMAILS = ["neeraj.khadilkar@morningstar.com"]  # <-- update recipient list as needed
 
         if not SENDGRID_API_KEY:
