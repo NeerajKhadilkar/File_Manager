@@ -1,9 +1,9 @@
-name: Run DDGS Search Scraper & Upload to SharePoint
+name: Run Non-Headless Selenium Scraper & Send SendGrid Email
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch: 
 
 jobs:
   scrape:
@@ -21,120 +21,77 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pandas beautifulsoup4 curl_cffi pytz ddgs openpyxl office365-rest-python-client certifi
+        # Added sendgrid package to the setup steps
+        pip install selenium beautifulsoup4 sendgrid
+
+    - name: Configure Virtual Desktop Resolution
+      run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      shell: powershell
 
     - name: Create Python Script File
       shell: powershell
       run: |
         @'
-        from datetime import datetime
-        import os
-        import random
-        import time
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.support.ui import WebDriverWait
         from bs4 import BeautifulSoup
-        from curl_cffi import requests as cfreq
-        import pandas as pd
-        import pytz
-        from ddgs import DDGS
-        import certifi
-        from office365.sharepoint.client_context import ClientContext
+        import time
+        from sendgrid import SendGridAPIClient
+        from sendgrid.helpers.mail import Mail
 
-        # --- Configuration & SSL setup ---
-        ZSCALER_CERT = r"c:\Users\nkhadil\Downloads\ZscalerRootCA-Feb2025.pem"
-        if os.path.exists(ZSCALER_CERT):
-            os.environ["SSL_CERT_FILE"] = ZSCALER_CERT
-            os.environ["SSL_CERT_DIR"] = os.path.dirname(ZSCALER_CERT)
-            os.environ["REQUESTS_CA_BUNDLE"] = ZSCALER_CERT
-            os.environ["CURL_CA_BUNDLE"] = ZSCALER_CERT
-        else:
-            # ZSCALER_CERT is a local machine path and won't exist on the
-            # GitHub Actions runner — fall back to certifi's bundle so SSL
-            # verification still works in CI.
-            os.environ["SSL_CERT_FILE"] = certifi.where()
-            os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
-            os.environ["CURL_CA_BUNDLE"] = certifi.where()
+        # --- 1. SELENIUM BROWSER SCRAPING ---
+        chrome_options = Options()
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--start-maximized')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 
-        QUERIES = [
-            "Nuveen Colorado Municipal Bond Fund;C",
-            "Franklin Total Return Fund;Advisor",
-            "Franklin International Core Equity (IU) Fund",
-            "Franklin U.S. Core Equity (IU) Fund",
-            "Franklin Income Fund;C",
-        ]
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+            "userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        })
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        def search_one(query, max_results=10, retries=3):
-            """Return top `max_results` DDG results for a single query as a DataFrame."""
-            delay = 5
-            for attempt in range(retries):
-                try:
-                    with DDGS() as ddgs:
-                        results = list(ddgs.text(query, max_results=max_results, backend="auto", safesearch="Off", proxy=None))
-                    df = pd.DataFrame(results)
-                    if df.empty:
-                        return pd.DataFrame(columns=["query", "rank", "title", "href", "body"])
-                    df = df[["title", "href", "body"]].head(max_results).copy()
-                    df.insert(0, "rank", range(1, len(df) + 1))
-                    df.insert(0, "query", query)
-                    return df
-                except Exception as e:
-                    if attempt == retries - 1:
-                        print(f"FAILED: {query} -> {e}")
-                        return pd.DataFrame(
-                            [{"query": query, "rank": None, "title": None,
-                              "href": None, "body": f"ERROR: {e}"}]
-                        )
-                    print(f"Retry {attempt + 1} for '{query}' in {delay}s ({e})")
-                    time.sleep(delay)
-                    delay *= 2
+        url = r"https://www.marketwatch.com/investing/fund/PJSM"
+        print("Opening browser to extract data...")
+        driver.get(url)
+        time.sleep(5) 
 
-        def search_all(queries, max_results=10, out_path="results.xlsx"):
-            frames = []
-            unique_queries = list(dict.fromkeys(queries))  # dedupe, preserve order
-            for i, q in enumerate(unique_queries, 1):
-                print(f"[{i}/{len(unique_queries)}] {q}")
-                frames.append(search_one(q, max_results=max_results))
-                if i < len(unique_queries):
-                    time.sleep(random.uniform(3, 7))  # throttle to avoid ratelimit
-            final_df = pd.concat(frames, ignore_index=True)
-            final_df.to_excel(out_path, index=False)
-            print(f"\nSaved {len(final_df)} rows to {out_path}")
-            return final_df
+        html = driver.page_source
+        driver.quit()
 
-        local_filename = "results.xlsx"
-        final_df = search_all(QUERIES, max_results=10, out_path=local_filename)
-        print(final_df.head(20))
+        soup = BeautifulSoup(html, 'html.parser')
+        print("Browser scraping successful.")
 
-        # --- SHAREPOINT AUTHENTICATION & UPLOAD ---
-        site_url = "https://morningstaronline.sharepoint.com/sites/EnterpriseQuality"
-        tenant_name = "morningstaronline.onmicrosoft.com"
+        # --- 2. SENDGRID EMAIL NOTIFICATION ---
+        def send_notification(sendgrid_key):  
+            # Define target recipient group/string since 'emails' wasn't declared prior
+            target_recipient = 'neeraj.khadilkar@morningstar.com'
 
-        CLIENT_ID = "9bc3ab49-b65d-410a-85ad-de819febfddc"
-        sp_user = "neeraj.khadilkar@morningstar.com"
-        sp_pass = "..."
+            message = Mail(  
+                from_email='neeraj.khadilkar@morningstar.com',  
+                to_emails=target_recipient,  
+                subject='Test Email From SendGrid',  
+                html_content='<strong>Test Email From SendGrid. Scraper completed successfully.</strong>'  
+            )  
+          
+            try:  
+                sg = SendGridAPIClient(sendgrid_key)  
+                response = sg.send(message)  
+                print(f"Status Code: {response.status_code}")  
+                print("email sent")  
+            except Exception as e:  
+                print(str(e))  
+                print("couldn't sent email.")  
 
-        if not sp_user or not sp_pass:
-            raise ValueError("CRITICAL ERROR: SharePoint credentials are empty! Please check your GitHub Repository Secrets.")
-
-        print("Connecting to SharePoint non-interactively...")
-        ctx = ClientContext(site_url).with_username_and_password(
-            tenant=tenant_name,
-            client_id=CLIENT_ID,
-            username=sp_user,
-            password=sp_pass,
-        )
-
-        web = ctx.web.get().execute_query()
-        print(f"Authenticated successfully to site: {web.properties['Title']}")
-
-        folder_relative_url = "/sites/EnterpriseQuality/Shared Documents/Benchmarking Project/2026/US OE/Data Extraction/Investment_coverage_extracted/inv_coverate_comparison/marketwatch"
-        target_folder = ctx.web.get_folder_by_server_relative_url(folder_relative_url)
-
-        print(f"Uploading {local_filename} to SharePoint target directory...")
-        with open(local_filename, 'rb') as content_file:
-            file_content = content_file.read()
-
-        target_folder.upload_file(local_filename, file_content).execute_query()
-        print("Upload successful! Validation complete.")
+        # Executing email payload with your token string
+        print("Initializing SendGrid notification dispatch...")
+        send_notification('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')
 
         '@ | Out-File -FilePath inline_script.py -Encoding utf8
 
