@@ -1,4 +1,4 @@
-name: Run ETF Scraper & Commit CSV
+name: Execute UI.Vision JSON Macro & Commit CSV
 
 on:
   workflow_dispatch:
@@ -7,9 +7,9 @@ permissions:
   contents: write
 
 jobs:
-  run-crawler:
+  run-uivision:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout Repository Code
@@ -22,106 +22,741 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
+      - name: Install System Dependencies (Chrome & Virtual Display)
         run: |
-          pip install pandas requests beautifulsoup4 pytz
+          sudo apt-get update
+          sudo apt-get install -y xvfb google-chrome-stable curl
+          pip install pandas
 
-      - name: Execute Scraper & Write competitor-etf-report.csv
+      - name: Verify Pre-committed Extension & HTML Runner
         run: |
-          python3 - << 'EOF'
-          import os
-          import csv
-          import requests
-          from datetime import datetime
-          import pytz
+          # 1. Ensure uivision-extension exists in repo
+          if [ ! -d "./uivision-extension" ]; then
+            echo "ERROR: 'uivision-extension' folder missing from repository root!"
+            exit 1
+          fi
 
-          INPUT_CSV = "collated_morn_exchange_unprocessed_records_filtered.csv"
-          OUTPUT_FILE = "competitor-etf-report.csv"
+          # 2. Download ui.vision.html runner if missing
+          if [ ! -f "./ui.vision.html" ]; then
+            echo "Fetching ui.vision.html runner..."
+            curl -sSL "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" -o ui.vision.html
+          fi
 
-          # 1. Compute formatted timestamps
-          ist = pytz.timezone('Asia/Kolkata')
-          cst = pytz.timezone('America/Chicago')
-          now_utc = datetime.now(pytz.utc)
-          now_ist = now_utc.astimezone(ist)
-          now_cst = now_utc.astimezone(cst)
+          # 3. Verify input CSV exists
+          if [ ! -f "./collated_morn_exchange_unprocessed_records_filtered.csv" ]; then
+            echo "ERROR: collated_morn_exchange_unprocessed_records_filtered.csv not found in root!"
+            exit 1
+          fi
 
-          ist_val = now_ist.strftime("%-m/%-d/%Y %H:%M")
-          cst_val = now_cst.strftime("%-m/%-d/%Y %H:%M")
-
-          headers = [
-              "SecId", "PerformanceId", "ExchangeId", "Ticker", "Date",
-              "Inception_Date", "Extracted_Title", "Present_In", "Players",
-              "Status", "IST_Timestamp", "CST_Timestamp"
-          ]
-
-          # 2. Read input file or initialize baseline
-          if not os.path.exists(INPUT_CSV):
-              print(f"Warning: {INPUT_CSV} not found on runner. Using sample baseline.")
-              records = [["F00001TAE8", "0P0001YKZK", "EX$$$$XNAS", "PJSM", "9/3/2026", "9/3/2026", "MarketWatch Fund", "DB", "marketwatch"]]
-          else:
-              with open(INPUT_CSV, "r", encoding="utf-8") as f:
-                  reader = list(csv.reader(f))
-                  records = reader[1:] if len(reader) > 1 else []
-
-          def check_marketwatch(ticker):
-              url = f"https://www.marketwatch.com/investing/fund/{ticker}"
-              headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-              try:
-                  res = requests.get(url, headers=headers, timeout=10)
-                  text_lower = res.text.lower()
-                  url_lower = res.url.lower()
-                  if "/search" in url_lower or "search results" in text_lower or "symbol not found" in text_lower:
-                      return "Not Found"
-                  return "Found"
-              except Exception:
-                  return "Found"
-
-          display_map = {
-              'wsj': 'wsj',
-              'barrons': 'Barrons',
-              'bloomberg': 'Bloomberg',
-              'etf': 'ETF',
-              'etfdb': 'ETFDB',
-              'marketwatch': 'Marketwatch'
+      - name: Create UI.Vision Macro JSON File
+        run: |
+          cat << 'EOF' > us_etf_ttm_executor.json
+          {
+            "Name": "us_etf_ttm_executor",
+            "CreationDate": "2026-9-3",
+            "Commands": [
+              {
+                "Command": "open",
+                "Target": "https://www.google.com",
+                "Value": "",
+                "Description": "Clean start"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var d=new Date();var i=new Date(d.toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));return 'competitor_etf_report_'+i.getFullYear()+'-'+('0'+(i.getMonth()+1)).slice(-2)+'-'+('0'+i.getDate()).slice(-2)+'_'+('0'+i.getHours()).slice(-2)+'-'+('0'+i.getMinutes()).slice(-2)+'-'+('0'+i.getSeconds()).slice(-2)+'.csv';",
+                "Value": "fileName",
+                "Description": "Output filename"
+              },
+              {
+                "Command": "store",
+                "Target": "10",
+                "Value": "!timeout_wait",
+                "Description": "Timeout"
+              },
+              {
+                "Command": "store",
+                "Target": "true",
+                "Value": "!errorIgnore",
+                "Description": "Ignore page errors"
+              },
+              {
+                "Command": "store",
+                "Target": "wsj,Barrons,Bloomberg,ETF,ETFDB,Marketwatch",
+                "Value": "playerListString",
+                "Description": "SELECT PLAYERS HERE"
+              },
+              {
+                "Command": "csvReadArray",
+                "Target": "collated_morn_exchange_unprocessed_records_filtered.csv",
+                "Value": "rawCsvData",
+                "Description": "Read master CSV"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var raw=${rawCsvData};var out={};if(!raw||!Array.isArray(raw))return out;for(var i=1;i<raw.length;i++){var r=raw[i];if(!r||r.length<9)continue;var t=String(r[3]||'').replace(/[\"']/g,'').trim();var p=String(r[8]||'').trim().toLowerCase();if(!t||!p)continue;if(!out[p])out[p]={tickers:[],metaMap:{}};if(out[p].tickers.indexOf(t)<0)out[p].tickers.push(t);if(!out[p].metaMap[t])out[p].metaMap[t]={secId:r[0]||'',perfId:r[1]||'',exchId:r[2]||'',date:r[4]||'',inceptDate:r[5]||'',title:r[6]||'',presentIn:r[7]||''};}return out;",
+                "Value": "playersData",
+                "Description": "Build player -> tickers + metadata"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return String(${playerListString}).split(',').map(function(x){return x.trim().toLowerCase();}).filter(Boolean);",
+                "Value": "playerList",
+                "Description": "Selected players"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var p=${playerList};return p.length;",
+                "Value": "playerCount",
+                "Description": "Player count"
+              },
+              {
+                "Command": "store",
+                "Target": "SecId",
+                "Value": "!csvLine",
+                "Description": "Header"
+              },
+              {
+                "Command": "store",
+                "Target": "PerformanceId",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "ExchangeId",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "Ticker",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "Date",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "Inception_Date",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "Extracted_Title",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "Present_In",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "Players",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "Status",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "IST_Timestamp",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "CST_Timestamp",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "csvSave",
+                "Target": "${fileName}",
+                "Value": "",
+                "Description": "Write header"
+              },
+              {
+                "Command": "store",
+                "Target": "0",
+                "Value": "playerIndex",
+                "Description": "Start player loop"
+              },
+              {
+                "Command": "while_v2",
+                "Target": "${playerIndex} < ${playerCount}",
+                "Value": "",
+                "Description": "Selected players"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var a=${playerList};return String(a[Number(${playerIndex})]||'').trim().toLowerCase();",
+                "Value": "player",
+                "Description": "Current player"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var d=${playersData};var p=String(${player}).toLowerCase();return d[p]?d[p].tickers:[];",
+                "Value": "tickerList",
+                "Description": "Get only this player's tickers"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var a=${tickerList};return a.length;",
+                "Value": "tickerCount",
+                "Description": "Ticker count"
+              },
+              {
+                "Command": "echo",
+                "Target": "========== STARTING ${player} (${tickerCount} tickers) ==========",
+                "Value": "#00ff00",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "0",
+                "Value": "tickerIndex",
+                "Description": "Start ticker loop"
+              },
+              {
+                "Command": "while_v2",
+                "Target": "${tickerIndex} < ${tickerCount}",
+                "Value": "",
+                "Description": "Process player tickers"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var a=${tickerList};return String(a[Number(${tickerIndex})]||'').trim();",
+                "Value": "ticker",
+                "Description": "Current ticker"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var p=String(${player}).toLowerCase();var t=encodeURIComponent(String(${ticker}).trim());var u='';if(p==='etf')u='https://www.etf.com/'+t;else if(p==='wsj')u='https://www.wsj.com/market-data/quotes/etf/'+t;else if(p==='barrons')u='https://www.barrons.com/market-data/funds/'+t;else if(p==='marketwatch')u='https://www.marketwatch.com/investing/fund/'+t;else if(p==='etfdb')u='https://etfdb.com/etf/'+t+'/#etf-ticker-profile';else if(p==='bloomberg')u='https://www.bloomberg.com/quote/'+t+':US';return u;",
+                "Value": "currentUrl",
+                "Description": "Build player URL"
+              },
+              {
+                "Command": "echo",
+                "Target": "[${player}] ${ticker} -> ${currentUrl}",
+                "Value": "#00ffff",
+                "Description": ""
+              },
+              {
+                "Command": "open",
+                "Target": "${currentUrl}",
+                "Value": "",
+                "Description": "Open player page"
+              },
+              {
+                "Command": "if_v2",
+                "Target": "${player} == 'etf'",
+                "Value": "",
+                "Description": "ETF status logic"
+              },
+              {
+                "Command": "sourceSearch",
+                "Target": "Oh No",
+                "Value": "errorCount",
+                "Description": "ETF existing logic"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return Number(${errorCount})>0?'Not Found':'Found';",
+                "Value": "status",
+                "Description": ""
+              },
+              {
+                "Command": "else",
+                "Target": "",
+                "Value": "",
+                "Description": ""
+              },
+              {
+                "Command": "if_v2",
+                "Target": "${player} == 'wsj'",
+                "Value": "",
+                "Description": "WSJ status logic"
+              },
+              {
+                "Command": "sourceSearch",
+                "Target": "Page Not Found",
+                "Value": "errorCount",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return Number(${errorCount})>0?'Not Found':'Found';",
+                "Value": "status",
+                "Description": ""
+              },
+              {
+                "Command": "else",
+                "Target": "",
+                "Value": "",
+                "Description": ""
+              },
+              {
+                "Command": "if_v2",
+                "Target": "${player} == 'barrons'",
+                "Value": "",
+                "Description": "Barrons status logic"
+              },
+              {
+                "Command": "sourceSearch",
+                "Target": "That content doesn't seem to exist.",
+                "Value": "errorCount",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return Number(${errorCount})>0?'Not Found':'Found';",
+                "Value": "status",
+                "Description": ""
+              },
+              {
+                "Command": "else",
+                "Target": "",
+                "Value": "",
+                "Description": ""
+              },
+              {
+                "Command": "if_v2",
+                "Target": "${player} == 'marketwatch'",
+                "Value": "",
+                "Description": "Marketwatch status logic"
+              },
+              {
+                "Command": "executeScript",
+                "Target": "var u = window.location.href.toLowerCase(); var t = document.title.toLowerCase(); if (u.indexOf('/search') !== -1 || t.indexOf('search results') !== -1) { return 'Not Found'; } return 'Found';",
+                "Value": "status",
+                "Description": "Checks if browser was redirected to search page"
+              },
+              {
+                "Command": "else",
+                "Target": "",
+                "Value": "",
+                "Description": ""
+              },
+              {
+                "Command": "if_v2",
+                "Target": "${player} == 'etfdb'",
+                "Value": "",
+                "Description": "ETFDB existing status logic"
+              },
+              {
+                "Command": "sourceSearch",
+                "Target": "DELISTED",
+                "Value": "delistedCount",
+                "Description": ""
+              },
+              {
+                "Command": "sourceSearch",
+                "Target": "ACQUIRED",
+                "Value": "acquiredCount",
+                "Description": ""
+              },
+              {
+                "Command": "sourceSearch",
+                "Target": "Gone Bankrupt",
+                "Value": "bankruptCount",
+                "Description": ""
+              },
+              {
+                "Command": "sourceSearch",
+                "Target": "not found",
+                "Value": "notFoundCount",
+                "Description": ""
+              },
+              {
+                "Command": "sourceSearch",
+                "Target": "doesn't exist",
+                "Value": "doesntExistCount",
+                "Description": ""
+              },
+              {
+                "Command": "sourceSearch",
+                "Target": "does not exist",
+                "Value": "doesNotExistCount",
+                "Description": ""
+              },
+              {
+                "Command": "sourceSearch",
+                "Target": "No ETF data",
+                "Value": "noEtfDataCount",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var d=Number(${delistedCount});var a=Number(${acquiredCount});var b=Number(${bankruptCount});var n=Number(${notFoundCount});var x=Number(${doesntExistCount});var y=Number(${doesNotExistCount});var z=Number(${noEtfDataCount});return(d>0||a>0||b>0||n>0||x>0||y>0||z>0)?'Not Found':'Found';",
+                "Value": "status",
+                "Description": ""
+              },
+              {
+                "Command": "else",
+                "Target": "",
+                "Value": "",
+                "Description": ""
+              },
+              {
+                "Command": "if_v2",
+                "Target": "${player} == 'bloomberg'",
+                "Value": "",
+                "Description": "Bloomberg status logic"
+              },
+              {
+                "Command": "storeText",
+                "Target": "xpath=//body",
+                "Value": "bloombergPageContent",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var c=String(${bloombergPageContent}||'').toLowerCase();var n=c.indexOf('page not found')!==-1;var e=c.indexOf('404')!==-1;if(n||e)return 'Not Found';return 'Found';",
+                "Value": "status",
+                "Description": "Treat pending listing as Found"
+              },
+              {
+                "Command": "end",
+                "Target": "",
+                "Value": "",
+                "Description": "End Bloomberg"
+              },
+              {
+                "Command": "end",
+                "Target": "",
+                "Value": "",
+                "Description": "End ETFDB"
+              },
+              {
+                "Command": "end",
+                "Target": "",
+                "Value": "",
+                "Description": "End Marketwatch"
+              },
+              {
+                "Command": "end",
+                "Target": "",
+                "Value": "",
+                "Description": "End Barrons"
+              },
+              {
+                "Command": "end",
+                "Target": "",
+                "Value": "",
+                "Description": "End WSJ"
+              },
+              {
+                "Command": "end",
+                "Target": "",
+                "Value": "",
+                "Description": "End ETF"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var d=new Date();var i=new Date(d.toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));var c=new Date(d.toLocaleString('en-US',{timeZone:'America/Chicago'}));return [i.getMonth()+1,i.getDate(),i.getFullYear(),('0'+i.getHours()).slice(-2)+':'+('0'+i.getMinutes()).slice(-2),c.getMonth()+1,c.getDate(),c.getFullYear(),('0'+c.getHours()).slice(-2)+':'+('0'+c.getMinutes()).slice(-2)];",
+                "Value": "timeParts",
+                "Description": "Timestamps"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var p=${timeParts};return p[0]+'/'+p[1]+'/'+p[2]+' '+p[3];",
+                "Value": "rowIst",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var p=${timeParts};return p[4]+'/'+p[5]+'/'+p[6]+' '+p[7];",
+                "Value": "rowCst",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var d=${playersData};var p=String(${player}).toLowerCase();var t=String(${ticker}).trim();return(d[p]&&d[p].metaMap[t])?d[p].metaMap[t]:{};",
+                "Value": "meta",
+                "Description": "Get CSV metadata"
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return ${meta}.secId||'';",
+                "Value": "rowSecId",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return ${meta}.perfId||'';",
+                "Value": "rowPerfId",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return ${meta}.exchId||'';",
+                "Value": "rowExchId",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return ${meta}.date||'';",
+                "Value": "rowDate",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return ${meta}.inceptDate||'';",
+                "Value": "rowInceptDate",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return ${meta}.title||'';",
+                "Value": "rowTitle",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return ${meta}.presentIn||'';",
+                "Value": "rowPresentIn",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "var p=String(${player}).toLowerCase();var m={'wsj':'wsj','barrons':'Barrons','bloomberg':'Bloomberg','etf':'ETF','etfdb':'ETFDB','marketwatch':'Marketwatch'};return m[p]||${player};",
+                "Value": "displayPlayer",
+                "Description": "Format display name for Players column"
+              },
+              {
+                "Command": "store",
+                "Target": "${rowSecId}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "${rowPerfId}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "${rowExchId}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "${ticker}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "${rowDate}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "${rowInceptDate}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "${rowTitle}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "${rowPresentIn}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "${displayPlayer}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "${status}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "${rowIst}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "store",
+                "Target": "${rowCst}",
+                "Value": "!csvLine",
+                "Description": ""
+              },
+              {
+                "Command": "csvSave",
+                "Target": "${fileName}",
+                "Value": "",
+                "Description": "Save result"
+              },
+              {
+                "Command": "echo",
+                "Target": "[${player}] ${ticker} -> ${status}",
+                "Value": "#00ff00",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return Number(${tickerIndex})+1;",
+                "Value": "tickerIndex",
+                "Description": ""
+              },
+              {
+                "Command": "end",
+                "Target": "",
+                "Value": "",
+                "Description": "End ticker loop"
+              },
+              {
+                "Command": "echo",
+                "Target": "========== COMPLETED ${player} ==========",
+                "Value": "#00ff00",
+                "Description": ""
+              },
+              {
+                "Command": "executeScript_Sandbox",
+                "Target": "return Number(${playerIndex})+1;",
+                "Value": "playerIndex",
+                "Description": ""
+              },
+              {
+                "Command": "end",
+                "Target": "",
+                "Value": "",
+                "Description": "End player loop"
+              },
+              {
+                "Command": "echo",
+                "Target": "========== COMPLETED SELECTED PLAYERS ==========",
+                "Value": "#00ff00",
+                "Description": ""
+              }
+            ]
           }
-
-          results = []
-          for r in records:
-              if len(r) < 9:
-                  continue
-              sec_id, perf_id, exch_id, ticker, date_val, incept_date, title, present_in, player = r[:9]
-              player_clean = player.strip().lower()
-
-              status = "Found"
-              if player_clean == "marketwatch":
-                  status = check_marketwatch(ticker)
-
-              display_player = display_map.get(player_clean, player)
-
-              results.append([
-                  sec_id, perf_id, exch_id, ticker, date_val, incept_date,
-                  title, present_in, display_player, status, ist_val, cst_val
-              ])
-
-          with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
-              writer = csv.writer(f)
-              writer.writerow(headers)
-              writer.writerows(results)
-
-          print(f"Generated {OUTPUT_FILE} with {len(results)} rows.")
           EOF
 
-      - name: Commit and Push CSV to Master
+      - name: Setup Headless Profile & Seed UI.Vision Storage
+        run: |
+          PROFILE_DIR="/tmp/chrome_uivision_profile"
+          mkdir -p "${PROFILE_DIR}/Default/uivision/datasources"
+          mkdir -p "${PROFILE_DIR}/Default/uivision/macros"
+
+          # 1. Provide CSV file to UI.Vision datasources
+          cp ./collated_morn_exchange_unprocessed_records_filtered.csv "${PROFILE_DIR}/Default/uivision/datasources/"
+
+          # 2. Provide macro JSON
+          cp ./us_etf_ttm_executor.json "${PROFILE_DIR}/Default/uivision/macros/"
+
+      - name: Run UI.Vision Macro under Virtual Display
+        run: |
+          cat << 'EOF' > run_uivision.py
+          import os
+          import time
+          import shutil
+          import subprocess
+
+          CHROME_BIN = "/usr/bin/google-chrome"
+          EXT_DIR = os.path.abspath("./uivision-extension")
+          HTML_RUNNER = os.path.abspath("./ui.vision.html")
+          PROFILE_DIR = "/tmp/chrome_uivision_profile"
+          DOWNLOAD_DIR = os.path.expanduser("~/Downloads")
+          os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+          # Auto-run command parameter for UI.Vision
+          run_url = f"file://{HTML_RUNNER}?direct=1&macro=us_etf_ttm_executor&closeRPA=0"
+
+          chrome_flags = [
+              CHROME_BIN,
+              f"--load-extension={EXT_DIR}",
+              f"--user-data-dir={PROFILE_DIR}",
+              "--no-sandbox",
+              "--disable-dev-shm-usage",
+              "--disable-gpu",
+              "--window-size=1920,1080",
+              run_url
+          ]
+
+          print(f"Launching Chrome with UI.Vision macro...")
+          proc = subprocess.Popen(chrome_flags)
+
+          timeout = 2400  # 40 mins max
+          start = time.time()
+          found = None
+
+          while time.time() - start < timeout:
+              # UI.Vision saves to Downloads folder or the profile's download directory
+              candidates = []
+              if os.path.exists(DOWNLOAD_DIR):
+                  candidates += [os.path.join(DOWNLOAD_DIR, f) for f in os.listdir(DOWNLOAD_DIR) if f.startswith("competitor_etf_report_") and f.endswith(".csv")]
+              
+              prof_down = os.path.join(PROFILE_DIR, "Default", "Downloads")
+              if os.path.exists(prof_down):
+                  candidates += [os.path.join(prof_down, f) for f in os.listdir(prof_down) if f.startswith("competitor_etf_report_") and f.endswith(".csv")]
+              
+              candidates += [f for f in os.listdir(".") if f.startswith("competitor_etf_report_") and f.endswith(".csv")]
+
+              if candidates:
+                  found = candidates[0]
+                  print(f"Detected UI.Vision generated report: {found}")
+                  shutil.copyfile(found, "competitor-etf-report.csv")
+                  print("Created competitor-etf-report.csv successfully.")
+                  break
+
+              time.sleep(10)
+
+          proc.terminate()
+          try:
+              proc.wait(timeout=10)
+          except Exception:
+              proc.kill()
+
+          if not found:
+              print("ERROR: Macro execution did not produce an output file within timeout.")
+              exit(1)
+          EOF
+
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python run_uivision.py
+
+      - name: Commit and Push competitor-etf-report.csv to Master
         shell: bash
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
+          if [ ! -f "competitor-etf-report.csv" ]; then
+            echo "ERROR: competitor-etf-report.csv not found to commit."
+            exit 1
+          fi
+
           git add competitor-etf-report.csv
           if git diff --staged --quiet; then
-            echo "No changes detected in competitor-etf-report.csv. Skipping commit."
+            echo "No changes in competitor-etf-report.csv. Skipping commit."
           else
-            git commit -m "Auto-update competitor-etf-report.csv [skip ci]"
+            git commit -m "Auto-update competitor-etf-report.csv from UI.Vision run [skip ci]"
             git push origin master
           fi
 
