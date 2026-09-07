@@ -27,47 +27,19 @@ jobs:
       - name: Install System Dependencies (Chrome & Virtual Display)
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb google-chrome-stable unzip curl
+          sudo apt-get install -y xvfb google-chrome-stable
           pip install pandas
 
-      - name: Download and Unpack UI.Vision Extension & HTML Runner
+      - name: Verify Extension & Runner Files Exist
         run: |
-          # 1. Download UI.Vision command-line runner
-          curl -sSL "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" -o ui.vision.html
-
-          # 2. Download and extract the CRX using Python with Chrome User-Agent
-          python3 - << 'EOF'
-          import urllib.request
-          import zipfile
-          import io
-          import os
-
-          ext_id = "eipoliejnbbljnemmnflodfcggagbhcm"
-          url = f"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=128.0.0.0&acceptformat=crx2,crx3&x=id%3D{ext_id}%26uc"
-
-          headers = {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-          }
-
-          print(f"Fetching CRX for extension: {ext_id}...")
-          req = urllib.request.Request(url, headers=headers)
-          with urllib.request.urlopen(req) as resp:
-              data = resp.read()
-
-          print(f"Downloaded {len(data)} bytes.")
-
-          # Find ZIP magic header
-          pk_idx = data.find(b'PK\x03\x04')
-          if pk_idx == -1:
-              print("Raw response preview:", data[:300])
-              raise RuntimeError("Failed to locate ZIP header inside CRX package.")
-
-          os.makedirs("uivision-extension", exist_ok=True)
-          with zipfile.ZipFile(io.BytesIO(data[pk_idx:])) as z:
-              z.extractall("uivision-extension")
-
-          print("UI.Vision successfully unpacked into ./uivision-extension")
-          EOF
+          if [ ! -d "./uivision-extension" ]; then
+            echo "Error: uivision-extension directory not found in repository root!"
+            exit 1
+          fi
+          if [ ! -f "./ui.vision.html" ]; then
+            echo "Downloading ui.vision.html..."
+            curl -sSL "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" -o ui.vision.html
+          fi
 
       - name: Run Python Bridge & Browser under Virtual Display
         run: |
@@ -85,7 +57,7 @@ jobs:
             echo "No new report file generated to commit."
           else
             git commit -m "Auto-update competitor ETF extraction report [skip ci]"
-            git push origin HEAD
+            git push origin master
           fi
 
       - name: Upload Artifact (Backup)
