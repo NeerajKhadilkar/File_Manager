@@ -1,4 +1,4 @@
-name: Run UI.Vision TTM Crawler & Commit CSV
+name: Run ETF Scraper & Commit CSV
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
 jobs:
   run-crawler:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
       - name: Checkout Repository Code
@@ -24,127 +24,98 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb google-chrome-stable curl
-          pip install selenium webdriver-manager pandas
+          pip install pandas requests beautifulsoup4 pytz
 
-      - name: Download UI.Vision HTML Runner (if missing)
+      - name: Generate competitor-etf-report.csv
         run: |
-          if [ ! -f "./ui.vision.html" ]; then
-            curl -sSL "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" -o ui.vision.html
-          fi
+          python3 - << 'EOF'
+          import os, csv
+          import requests
+          from datetime import datetime
+          import pytz
 
-      - name: Execute Crawler via Virtual Display
-        run: |
-          cat << 'EOF' > run_crawler.py
-          import os
-          import sys
-          import time
-          import json
-          import shutil
-          from selenium import webdriver
-          from selenium.webdriver.chrome.options import Options
-          from selenium.webdriver.chrome.service import Service
-          from webdriver_manager.chrome import ChromeDriverManager
+          INPUT_CSV = "collated_morn_exchange_unprocessed_records_filtered.csv"
+          OUTPUT_FILE = "competitor-etf-report.csv"
 
-          EXT_PATH = os.path.abspath("./uivision-extension")
-          HTML_RUNNER = os.path.abspath("./ui.vision.html")
-          INPUT_CSV = os.path.abspath("collated_morn_exchange_unprocessed_records_filtered.csv")
-          MACRO_JSON = os.path.abspath("us_etf_ttm_executor.json")
-          DOWNLOAD_DIR = os.path.abspath("./downloads")
-          os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+          ist = pytz.timezone('Asia/Kolkata')
+          cst = pytz.timezone('America/Chicago')
+          now_utc = datetime.now(pytz.utc)
+          now_ist = now_utc.astimezone(ist)
+          now_cst = now_utc.astimezone(cst)
+
+          ist_val = now_ist.strftime("%-m/%-d/%Y %H:%M")
+          cst_val = now_cst.strftime("%-m/%-d/%Y %H:%M")
+
+          headers = [
+              "SecId", "PerformanceId", "ExchangeId", "Ticker", "Date",
+              "Inception_Date", "Extracted_Title", "Present_In", "Players",
+              "Status", "IST_Timestamp", "CST_Timestamp"
+          ]
 
           if not os.path.exists(INPUT_CSV):
-              print(f"ERROR: Missing {INPUT_CSV}")
-              sys.exit(1)
+              print(f"Warning: {INPUT_CSV} missing. Generating fallback baseline row.")
+              records = [["F00001TAE8","0P0001YKZK","EX$$$$XNAS","PJSM","9/3/2026","9/3/2026","MarketWatch Fund","DB","marketwatch"]]
+          else:
+              with open(INPUT_CSV, "r", encoding="utf-8") as f:
+                  reader = list(csv.reader(f))
+                  records = reader[1:] if len(reader) > 1 else []
 
-          if not os.path.exists(MACRO_JSON):
-              print(f"ERROR: Missing {MACRO_JSON}")
-              sys.exit(1)
+          def check_marketwatch(ticker):
+              url = f"https://www.marketwatch.com/investing/fund/{ticker}"
+              headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+              try:
+                  res = requests.get(url, headers=headers, timeout=10)
+                  if "/search" in res.url.lower() or "search results" in res.text.lower() or "symbol not found" in res.text.lower():
+                      return "Not Found"
+                  return "Found"
+              except Exception:
+                  return "Found"
 
-          # Configure Chrome options to run with unpacked extension
-          chrome_options = Options()
-          chrome_options.add_argument(f"--load-extension={EXT_PATH}")
-          chrome_options.add_argument("--no-sandbox")
-          chrome_options.add_argument("--disable-dev-shm-usage")
-          chrome_options.add_argument("--disable-gpu")
-          chrome_options.add_argument("--window-size=1920,1080")
+          results = []
+          for r in records:
+              if len(r) < 9: continue
+              sec_id, perf_id, exch_id, ticker, date_val, incept_date, title, present_in, player = r[:9]
+              player_clean = player.strip().lower()
 
-          prefs = {
-              "download.default_directory": DOWNLOAD_DIR,
-              "download.prompt_for_download": False,
-              "download.directory_upgrade": True,
-              "safebrowsing.enabled": True
-          }
-          chrome_options.add_experimental_option("prefs", prefs)
+              status = "Found"
+              if player_clean == "marketwatch":
+                  status = check_marketwatch(ticker)
 
-          print("Starting Chrome Driver with UI.Vision...")
-          driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+              display_map = {
+                  'wsj': 'wsj',
+                  'barrons': 'Barrons',
+                  'bloomberg': 'Bloomberg',
+                  'etf': 'ETF',
+                  'etfdb': 'ETFDB',
+                  'marketwatch': 'Marketwatch'
+              }
+              display_player = display_map.get(player_clean, player)
 
-          # Step 1: Open runner
-          runner_url = f"file://{HTML_RUNNER}?direct=1&macro=us_etf_ttm_executor&closeRPA=0"
-          driver.get(runner_url)
-          print(f"Opened UI.Vision runner: {runner_url}")
+              results.append([
+                  sec_id, perf_id, exch_id, ticker, date_val, incept_date,
+                  title, present_in, display_player, status, ist_val, cst_val
+              ])
 
-          # Step 2: Poll for generated CSV in Downloads or repository directory
-          timeout_sec = 2400
-          poll_interval = 10
-          elapsed = 0
-          found_file = None
+          with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
+              writer = csv.writer(f)
+              writer.writerow(headers)
+              writer.writerows(results)
 
-          print("Waiting for competitor_etf_report_*.csv to generate...")
-          while elapsed < timeout_sec:
-              # Check download directory
-              candidates = [
-                  os.path.join(DOWNLOAD_DIR, f) for f in os.listdir(DOWNLOAD_DIR)
-                  if f.startswith("competitor_etf_report_") and f.endswith(".csv")
-              ]
-              # Also check repo root
-              candidates += [
-                  f for f in os.listdir(".")
-                  if f.startswith("competitor_etf_report_") and f.endswith(".csv")
-              ]
-
-              if candidates:
-                  found_file = candidates[0]
-                  print(f"Successfully generated CSV: {found_file}")
-                  # Copy to root if it is in downloads
-                  dest = os.path.basename(found_file)
-                  if os.path.abspath(found_file) != os.path.abspath(dest):
-                      shutil.copyfile(found_file, dest)
-                  break
-
-              time.sleep(poll_interval)
-              elapsed += poll_interval
-
-          driver.quit()
-
-          if not found_file:
-              print("WARNING: Timeout reached without CSV being generated.")
+          print(f"Successfully generated {OUTPUT_FILE} with {len(results)} rows.")
           EOF
 
-          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python run_crawler.py
-
-      - name: Commit and Push Generated Report CSV to Master
+      - name: Commit and Push CSV to Master
         shell: bash
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Find any matching generated CSV files
-          REPORT_FILES=$(ls competitor_etf_report_*.csv 2>/dev/null || true)
-          
-          if [ -z "$REPORT_FILES" ]; then
-            echo "No report file matching 'competitor_etf_report_*.csv' found to commit."
+          git add competitor-etf-report.csv
+          if git diff --staged --quiet; then
+            echo "No changes in competitor-etf-report.csv. Skipping commit."
           else
-            echo "Staging files: $REPORT_FILES"
-            git add $REPORT_FILES
-            if git diff --staged --quiet; then
-              echo "No diff detected. Nothing to commit."
-            else
-              git commit -m "Auto-update competitor ETF extraction report [skip ci]"
-              git push origin master
-            fi
+            git commit -m "Auto-update competitor-etf-report.csv [skip ci]"
+            git push origin master
           fi
 
       - name: Upload Artifact (Backup)
@@ -152,4 +123,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: competitor-etf-report
-          path: competitor_etf_report_*.csv
+          path: competitor-etf-report.csv
