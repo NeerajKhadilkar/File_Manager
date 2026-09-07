@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   run-uivision:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 60
 
     steps:
@@ -22,35 +22,36 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install System Dependencies (Chrome & Virtual Display)
+      - name: Install Python Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb google-chrome-stable curl
+          python -m pip install --upgrade pip
           pip install pandas
 
-      - name: Verify Pre-committed Extension & HTML Runner
+      - name: Verify Required Files & Download HTML Runner
+        shell: powershell
         run: |
-          # 1. Ensure uivision-extension exists in repo
-          if [ ! -d "./uivision-extension" ]; then
-            echo "ERROR: 'uivision-extension' folder missing from repository root!"
+          # 1. Ensure uivision-extension directory exists
+          if (-not (Test-Path -Path ".\uivision-extension")) {
+            Write-Error "ERROR: 'uivision-extension' folder missing from repository root! Please commit it to master."
             exit 1
-          fi
+          }
 
           # 2. Download ui.vision.html runner if missing
-          if [ ! -f "./ui.vision.html" ]; then
-            echo "Fetching ui.vision.html runner..."
-            curl -sSL "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" -o ui.vision.html
-          fi
+          if (-not (Test-Path -Path ".\ui.vision.html")) {
+            Write-Host "Fetching ui.vision.html runner..."
+            Invoke-WebRequest -Uri "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" -OutFile "ui.vision.html"
+          }
 
           # 3. Verify input CSV exists
-          if [ ! -f "./collated_morn_exchange_unprocessed_records_filtered.csv" ]; then
-            echo "ERROR: collated_morn_exchange_unprocessed_records_filtered.csv not found in root!"
+          if (-not (Test-Path -Path ".\collated_morn_exchange_unprocessed_records_filtered.csv")) {
+            Write-Error "ERROR: collated_morn_exchange_unprocessed_records_filtered.csv not found in root!"
             exit 1
-          fi
+          }
 
       - name: Create UI.Vision Macro JSON File
+        shell: powershell
         run: |
-          cat << 'EOF' > us_etf_ttm_executor.json
+          @'
           {
             "Name": "us_etf_ttm_executor",
             "CreationDate": "2026-9-3",
@@ -657,50 +658,57 @@ jobs:
               }
             ]
           }
-          EOF
+          '@ | Out-File -FilePath us_etf_ttm_executor.json -Encoding utf8
 
-      - name: Setup Headless Profile & Seed UI.Vision Storage
+      - name: Setup Windows Profile & Seed UI.Vision Storage
+        shell: powershell
         run: |
-          PROFILE_DIR="/tmp/chrome_uivision_profile"
-          mkdir -p "${PROFILE_DIR}/Default/uivision/datasources"
-          mkdir -p "${PROFILE_DIR}/Default/uivision/macros"
+          $profileDir = "$env:TEMP\chrome_uivision_profile"
+          $datasourcesDir = "$profileDir\Default\uivision\datasources"
+          $macrosDir = "$profileDir\Default\uivision\macros"
 
-          # 1. Provide CSV file to UI.Vision datasources
-          cp ./collated_morn_exchange_unprocessed_records_filtered.csv "${PROFILE_DIR}/Default/uivision/datasources/"
+          New-Item -ItemType Directory -Force -Path $datasourcesDir
+          New-Item -ItemType Directory -Force -Path $macrosDir
 
-          # 2. Provide macro JSON
-          cp ./us_etf_ttm_executor.json "${PROFILE_DIR}/Default/uivision/macros/"
+          Copy-Item -Path ".\collated_morn_exchange_unprocessed_records_filtered.csv" -Destination $datasourcesDir -Force
+          Copy-Item -Path ".\us_etf_ttm_executor.json" -Destination $macrosDir -Force
+          Write-Host "Profile storage seeded successfully."
 
-      - name: Run UI.Vision Macro under Virtual Display
+      - name: Run UI.Vision Native Execution Script
+        shell: powershell
         run: |
-          cat << 'EOF' > run_uivision.py
+          @'
           import os
           import time
           import shutil
           import subprocess
+          import sys
 
-          CHROME_BIN = "/usr/bin/google-chrome"
-          EXT_DIR = os.path.abspath("./uivision-extension")
-          HTML_RUNNER = os.path.abspath("./ui.vision.html")
-          PROFILE_DIR = "/tmp/chrome_uivision_profile"
-          DOWNLOAD_DIR = os.path.expanduser("~/Downloads")
+          # Standard Google Chrome binary on Windows GitHub Runners
+          CHROME_BIN = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if not os.path.exists(CHROME_BIN):
+              CHROME_BIN = r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+
+          EXT_DIR = os.path.abspath(r".\uivision-extension")
+          HTML_RUNNER = os.path.abspath(r".\ui.vision.html")
+          PROFILE_DIR = os.path.join(os.environ["TEMP"], "chrome_uivision_profile")
+          DOWNLOAD_DIR = os.path.join(os.environ["USERPROFILE"], "Downloads")
           os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-          # Auto-run command parameter for UI.Vision
-          run_url = f"file://{HTML_RUNNER}?direct=1&macro=us_etf_ttm_executor&closeRPA=0"
+          # Auto-run UI.Vision macro
+          run_url = f"file:///{HTML_RUNNER.replace(os.sep, '/')}?direct=1&macro=us_etf_ttm_executor&closeRPA=0"
 
           chrome_flags = [
               CHROME_BIN,
               f"--load-extension={EXT_DIR}",
               f"--user-data-dir={PROFILE_DIR}",
-              "--no-sandbox",
-              "--disable-dev-shm-usage",
-              "--disable-gpu",
+              "--no-first-run",
+              "--no-default-browser-check",
               "--window-size=1920,1080",
               run_url
           ]
 
-          print(f"Launching Chrome with UI.Vision macro...")
+          print(f"Launching Chrome with UI.Vision: {run_url}")
           proc = subprocess.Popen(chrome_flags)
 
           timeout = 2400  # 40 mins max
@@ -708,15 +716,14 @@ jobs:
           found = None
 
           while time.time() - start < timeout:
-              # UI.Vision saves to Downloads folder or the profile's download directory
               candidates = []
               if os.path.exists(DOWNLOAD_DIR):
                   candidates += [os.path.join(DOWNLOAD_DIR, f) for f in os.listdir(DOWNLOAD_DIR) if f.startswith("competitor_etf_report_") and f.endswith(".csv")]
-              
+
               prof_down = os.path.join(PROFILE_DIR, "Default", "Downloads")
               if os.path.exists(prof_down):
                   candidates += [os.path.join(prof_down, f) for f in os.listdir(prof_down) if f.startswith("competitor_etf_report_") and f.endswith(".csv")]
-              
+
               candidates += [f for f in os.listdir(".") if f.startswith("competitor_etf_report_") and f.endswith(".csv")]
 
               if candidates:
@@ -736,10 +743,10 @@ jobs:
 
           if not found:
               print("ERROR: Macro execution did not produce an output file within timeout.")
-              exit(1)
-          EOF
+              sys.exit(1)
+          '@ | Out-File -FilePath run_uivision_win.py -Encoding utf8
 
-          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python run_uivision.py
+          python run_uivision_win.py
 
       - name: Commit and Push competitor-etf-report.csv to Master
         shell: bash
