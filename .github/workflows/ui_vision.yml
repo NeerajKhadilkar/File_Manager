@@ -19,12 +19,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install System Dependencies (Chrome & Xvfb)
+      - name: Install System Dependencies (Chrome & Virtual Display)
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb google-chrome-stable unzip curl
@@ -32,25 +32,42 @@ jobs:
 
       - name: Download and Unpack UI.Vision Extension & HTML Runner
         run: |
-          # 1. Download UI.Vision command line runner
+          # 1. Download UI.Vision command-line runner
           curl -sSL "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" -o ui.vision.html
 
-          # 2. Download and unpack UI.Vision CRX
-          mkdir -p uivision-extension
-          CHROME_VER=$(google-chrome --version | awk '{print $3}')
-          CRX_URL="https://clients2.google.com/service/update2/crx?response=redirect&prodversion=${CHROME_VER}&acceptformat=crx2,crx3&x=id%3Deipoliejnbbljnemmnflodfcggagbhcm%26uc"
-          curl -sSL "$CRX_URL" -o uivision.crx
-          
-          python3 -c "
-          with open('uivision.crx', 'rb') as f:
-              d = f.read()
-          idx = d.find(b'PK\x03\x04')
-          if idx != -1:
-              with open('uivision.zip', 'wb') as out:
-                  out.write(d[idx:])
-          "
-          unzip -q uivision.zip -d ./uivision-extension
-          echo "UI.Vision unpacked successfully."
+          # 2. Download and extract the CRX using Python with Chrome User-Agent
+          python3 - << 'EOF'
+          import urllib.request
+          import zipfile
+          import io
+          import os
+
+          ext_id = "eipoliejnbbljnemmnflodfcggagbhcm"
+          url = f"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=128.0.0.0&acceptformat=crx2,crx3&x=id%3D{ext_id}%26uc"
+
+          headers = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+          }
+
+          print(f"Fetching CRX for extension: {ext_id}...")
+          req = urllib.request.Request(url, headers=headers)
+          with urllib.request.urlopen(req) as resp:
+              data = resp.read()
+
+          print(f"Downloaded {len(data)} bytes.")
+
+          # Find ZIP magic header
+          pk_idx = data.find(b'PK\x03\x04')
+          if pk_idx == -1:
+              print("Raw response preview:", data[:300])
+              raise RuntimeError("Failed to locate ZIP header inside CRX package.")
+
+          os.makedirs("uivision-extension", exist_ok=True)
+          with zipfile.ZipFile(io.BytesIO(data[pk_idx:])) as z:
+              z.extractall("uivision-extension")
+
+          print("UI.Vision successfully unpacked into ./uivision-extension")
+          EOF
 
       - name: Run Python Bridge & Browser under Virtual Display
         run: |
