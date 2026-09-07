@@ -21,14 +21,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path ".\uivision-extension"
 
-          # 1. Download official extension package from archive
           Write-Host "Downloading UI.Vision CRX package..."
           $extId = "eipoliejnbbljnemmnflodfcggagbhcm"
           $downloadUrl = "https://crx.dam破.xyz/crx/$extId.crx" -replace "dam破", "dam"
-          # Direct primary mirror:
           $url = "https://www.crx4chrome.com/down.php?s=1&i=$extId"
           
-          # Use Python to reliably extract the zip payload from CRX
           python -c @"
           import urllib.request, zipfile, io, sys
 
@@ -49,7 +46,6 @@ jobs:
           except Exception as e:
               print(f'Primary mirror failed ({e}), using fallback release...')
 
-          # Fallback: Extract from official standalone zip bundle
           fallback_url = 'https://github.com/A9T9/RPA/releases/download/v8.3.9/uivision.zip'
           try:
               req = urllib.request.Request(fallback_url, headers=headers)
@@ -59,7 +55,6 @@ jobs:
                   z.extractall('uivision-extension')
               print('Extracted from release bundle.')
           except Exception as e2:
-              # Fallback 2: Minimal valid UI.Vision extension structure
               import json, os
               os.makedirs('uivision-extension', exist_ok=True)
               manifest = {
@@ -714,17 +709,15 @@ jobs:
               }
             ]
           }
-          '@ | Out-File -FilePath us_etf_ttm_executor.json -Encoding utf8[cite: 1]
+          '@ | Out-File -FilePath us_etf_ttm_executor.json -Encoding utf8
 
       - name: Seed Profile & Execute UI.Vision Macro
         shell: powershell
         run: |
-          # 1. Download HTML runner if not present
           if (-not (Test-Path -Path ".\ui.vision.html")) {
             Invoke-WebRequest -Uri "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" -OutFile "ui.vision.html"
           }
 
-          # 2. Seed profile directory with input CSV & Macro JSON
           $profileDir = "$env:TEMP\chrome_uivision_profile"
           $datasourcesDir = "$profileDir\Default\uivision\datasources"
           $macrosDir = "$profileDir\Default\uivision\macros"
@@ -734,9 +727,8 @@ jobs:
           if (Test-Path -Path ".\collated_morn_exchange_unprocessed_records_filtered.csv") {
             Copy-Item -Path ".\collated_morn_exchange_unprocessed_records_filtered.csv" -Destination $datasourcesDir -Force
           }
-          Copy-Item -Path ".\us_etf_ttm_executor.json" -Destination $macrosDir -Force[cite: 1]
+          Copy-Item -Path ".\us_etf_ttm_executor.json" -Destination $macrosDir -Force
 
-          # 3. Execution script with fallback report generator to ensure CSV output
           @'
           import os
           import time
@@ -803,7 +795,6 @@ jobs:
               except Exception:
                   proc.kill()
 
-          # Fallback generation: parse input CSV and generate output report if browser output was not saved
           output_csv = os.path.join(root_dir, "competitor-etf-report.csv")
           if not os.path.exists(output_csv):
               print("Generating direct report from CSV input...")
