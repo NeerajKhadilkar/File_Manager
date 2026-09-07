@@ -82,7 +82,7 @@ jobs:
           echo "No changes detected in scraped_output.html. Skipping commit."
         else
           git commit -m "Auto-update scraped_output.html [skip ci]"
-          git push origin main
+          git push origin HEAD
         fi
 
     - name: Upload HTML as workflow artifact (backup)
