@@ -61,7 +61,6 @@ jobs:
           headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
           download_successful = False
 
-          # Try mirror download
           crx_url = 'https://clients2.google.com/service/update2/crx?response=redirect&os=win&arch=x64&os_arch=x86_64&nacl_arch=x86-64&prod=chromecrx&prodchannel=&prodversion=120.0.0.0&acceptformat=crx2,crx3&x=id%3Deipoliejnbbljnemmnflodfcggagbhcm%26uc'
           try:
               req = urllib.request.Request(crx_url, headers=headers)
@@ -76,7 +75,6 @@ jobs:
           except Exception as e:
               print(f'Chrome Webstore query skipped: {e}')
 
-          # Fallback: build valid unpacked extension manifest
           if not download_successful or not os.path.exists('uivision-extension/manifest.json'):
               manifest = {
                   'manifest_version': 3,
@@ -730,7 +728,7 @@ jobs:
               }
             ]
           }
-          '@ | Out-File -FilePath "us_etf_ttm_executor.json" -Encoding utf8[cite: 1]
+          '@ | Out-File -FilePath "us_etf_ttm_executor.json" -Encoding utf8
 
       - name: Seed Profile & Execute UI.Vision Macro
         shell: powershell
@@ -746,7 +744,7 @@ jobs:
           if (Test-Path -Path ".\collated_morn_exchange_unprocessed_records_filtered.csv") {
             Copy-Item -Path ".\collated_morn_exchange_unprocessed_records_filtered.csv" -Destination $datasourcesDir -Force
           }
-          Copy-Item -Path ".\us_etf_ttm_executor.json" -Destination $macrosDir -Force[cite: 1]
+          Copy-Item -Path ".\us_etf_ttm_executor.json" -Destination $macrosDir -Force
 
           @'
           import os
