@@ -1,0 +1,79 @@
+name: Run UI.Vision TTM Crawler & Commit CSV
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run-crawler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install System Dependencies (Chrome & Xvfb)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb google-chrome-stable unzip curl
+          pip install pandas
+
+      - name: Download and Unpack UI.Vision Extension & HTML Runner
+        run: |
+          # 1. Download UI.Vision command line runner
+          curl -sSL "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" -o ui.vision.html
+
+          # 2. Download and unpack UI.Vision CRX
+          mkdir -p uivision-extension
+          CHROME_VER=$(google-chrome --version | awk '{print $3}')
+          CRX_URL="https://clients2.google.com/service/update2/crx?response=redirect&prodversion=${CHROME_VER}&acceptformat=crx2,crx3&x=id%3Deipoliejnbbljnemmnflodfcggagbhcm%26uc"
+          curl -sSL "$CRX_URL" -o uivision.crx
+          
+          python3 -c "
+          with open('uivision.crx', 'rb') as f:
+              d = f.read()
+          idx = d.find(b'PK\x03\x04')
+          if idx != -1:
+              with open('uivision.zip', 'wb') as out:
+                  out.write(d[idx:])
+          "
+          unzip -q uivision.zip -d ./uivision-extension
+          echo "UI.Vision unpacked successfully."
+
+      - name: Run Python Bridge & Browser under Virtual Display
+        run: |
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python run_pipeline.py
+
+      - name: Commit and Push Generated Report CSV to Master
+        shell: bash
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add competitor_etf_report_*.csv
+          
+          if git diff --staged --quiet; then
+            echo "No new report file generated to commit."
+          else
+            git commit -m "Auto-update competitor ETF extraction report [skip ci]"
+            git push origin HEAD
+          fi
+
+      - name: Upload Artifact (Backup)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: competitor-etf-report
+          path: competitor_etf_report_*.csv
