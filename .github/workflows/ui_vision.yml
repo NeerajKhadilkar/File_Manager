@@ -1,93 +1,133 @@
-name: Run Selenium Scraper & Commit HTML
+name: Run ETF Scraper & Commit CSV
 
 on:
-  push:
-    branches: [ master ]
   workflow_dispatch:
 
-# Grants write permission to push commits to the repository
 permissions:
   contents: write
 
 jobs:
-  scrape:
-    runs-on: windows-latest
+  run-crawler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-    - name: Checkout Repository Code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install selenium beautifulsoup4 certifi
+      - name: Install Dependencies
+        run: |
+          pip install pandas requests beautifulsoup4 pytz
 
-    - name: Create Python Script File
-      shell: powershell
-      run: |
-        @'
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.support.ui import WebDriverWait
-        from bs4 import BeautifulSoup
+      - name: Execute Scraper & Write competitor-etf-report.csv
+        run: |
+          python3 - << 'EOF'
+          import os
+          import csv
+          import requests
+          from datetime import datetime
+          import pytz
 
-        chrome_options = Options()
-        chrome_options.add_argument('--headless=new')
-        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+          INPUT_CSV = "collated_morn_exchange_unprocessed_records_filtered.csv"
+          OUTPUT_FILE = "competitor-etf-report.csv"
 
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-            "userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        })
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+          # 1. Compute formatted timestamps
+          ist = pytz.timezone('Asia/Kolkata')
+          cst = pytz.timezone('America/Chicago')
+          now_utc = datetime.now(pytz.utc)
+          now_ist = now_utc.astimezone(ist)
+          now_cst = now_utc.astimezone(cst)
 
-        url = r"https://www.marketwatch.com/investing/fund/PJSM"
-        driver.get(url)
+          ist_val = now_ist.strftime("%-m/%-d/%Y %H:%M")
+          cst_val = now_cst.strftime("%-m/%-d/%Y %H:%M")
 
-        html = driver.page_source
-        soup = BeautifulSoup(html, 'html.parser')
-        driver.quit()
+          headers = [
+              "SecId", "PerformanceId", "ExchangeId", "Ticker", "Date",
+              "Inception_Date", "Extracted_Title", "Present_In", "Players",
+              "Status", "IST_Timestamp", "CST_Timestamp"
+          ]
 
-        # Save the HTML page locally
-        local_filename = "scraped_output.html"
-        with open(local_filename, "w", encoding="utf-8") as f:
-            f.write(html)
+          # 2. Read input file or initialize baseline
+          if not os.path.exists(INPUT_CSV):
+              print(f"Warning: {INPUT_CSV} not found on runner. Using sample baseline.")
+              records = [["F00001TAE8", "0P0001YKZK", "EX$$$$XNAS", "PJSM", "9/3/2026", "9/3/2026", "MarketWatch Fund", "DB", "marketwatch"]]
+          else:
+              with open(INPUT_CSV, "r", encoding="utf-8") as f:
+                  reader = list(csv.reader(f))
+                  records = reader[1:] if len(reader) > 1 else []
 
-        print("Scrape successful")
-        print(f"Saved HTML to {local_filename}")
-        '@ | Out-File -FilePath inline_script.py -Encoding utf8
+          def check_marketwatch(ticker):
+              url = f"https://www.marketwatch.com/investing/fund/{ticker}"
+              headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+              try:
+                  res = requests.get(url, headers=headers, timeout=10)
+                  text_lower = res.text.lower()
+                  url_lower = res.url.lower()
+                  if "/search" in url_lower or "search results" in text_lower or "symbol not found" in text_lower:
+                      return "Not Found"
+                  return "Found"
+              except Exception:
+                  return "Found"
 
-    - name: Execute Scraper Script
-      run: python inline_script.py
+          display_map = {
+              'wsj': 'wsj',
+              'barrons': 'Barrons',
+              'bloomberg': 'Bloomberg',
+              'etf': 'ETF',
+              'etfdb': 'ETFDB',
+              'marketwatch': 'Marketwatch'
+          }
 
-    - name: Commit and Push Scraped HTML to Repository
-      shell: bash
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add scraped_output.html
-        
-        # Check if there are changes before committing
-        if git diff --staged --quiet; then
-          echo "No changes detected in scraped_output.html. Skipping commit."
-        else
-          git commit -m "Auto-update scraped_output.html [skip ci]"
-          git push origin HEAD
-        fi
+          results = []
+          for r in records:
+              if len(r) < 9:
+                  continue
+              sec_id, perf_id, exch_id, ticker, date_val, incept_date, title, present_in, player = r[:9]
+              player_clean = player.strip().lower()
 
-    - name: Upload HTML as workflow artifact (backup)
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: scraped-html
-        path: scraped_output.html
+              status = "Found"
+              if player_clean == "marketwatch":
+                  status = check_marketwatch(ticker)
+
+              display_player = display_map.get(player_clean, player)
+
+              results.append([
+                  sec_id, perf_id, exch_id, ticker, date_val, incept_date,
+                  title, present_in, display_player, status, ist_val, cst_val
+              ])
+
+          with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
+              writer = csv.writer(f)
+              writer.writerow(headers)
+              writer.writerows(results)
+
+          print(f"Generated {OUTPUT_FILE} with {len(results)} rows.")
+          EOF
+
+      - name: Commit and Push CSV to Master
+        shell: bash
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add competitor-etf-report.csv
+          if git diff --staged --quiet; then
+            echo "No changes detected in competitor-etf-report.csv. Skipping commit."
+          else
+            git commit -m "Auto-update competitor-etf-report.csv [skip ci]"
+            git push origin master
+          fi
+
+      - name: Upload Artifact (Backup)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: competitor-etf-report
+          path: competitor-etf-report.csv
