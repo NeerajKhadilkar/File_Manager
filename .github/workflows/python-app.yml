@@ -2,7 +2,7 @@ name: Run Selenium Scraper & Commit HTML
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   workflow_dispatch:
 
 # Grants write permission to push commits to the repository
