@@ -1,781 +1,93 @@
-name: Run UI.Vision TTM Crawler & Commit CSV
+name: Run Selenium Scraper & Commit HTML
 
 on:
+  push:
+    branches: [ master ]
   workflow_dispatch:
 
+# Grants write permission to push commits to the repository
 permissions:
   contents: write
 
 jobs:
   scrape:
     runs-on: windows-latest
-    timeout-minutes: 60
 
     steps:
-
-      # ============================================================
-      # STEP 1: CHECKOUT REPOSITORY
-      # ============================================================
-
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-
-      # ============================================================
-      # STEP 2: SETUP PYTHON
-      # ============================================================
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-
-      # ============================================================
-      # STEP 3: INSTALL PYTHON PACKAGES
-      # ============================================================
-
-      - name: Install Python Dependencies
-        shell: powershell
-        run: |
-          python -m pip install --upgrade pip
-          pip install selenium webdriver-manager pandas
-
-
-      # ============================================================
-      # STEP 4: DEBUG REPOSITORY FILES
-      # ============================================================
-
-      - name: Debug Repository Files
-        shell: powershell
-        run: |
-          Write-Host "========================================"
-          Write-Host "CURRENT DIRECTORY"
-          Write-Host "========================================"
-
-          Get-Location
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "ALL FILES"
-          Write-Host "========================================"
-
-          Get-ChildItem -Path . -Recurse -Force |
-            Select-Object FullName
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "CHECKING REQUIRED FILES"
-          Write-Host "========================================"
-
-          if (Test-Path "us_etf_ttm_executor.json") {
-              Write-Host "FOUND: us_etf_ttm_executor.json"
-          }
-          else {
-              Write-Error "MISSING: us_etf_ttm_executor.json"
-              exit 1
-          }
-
-          if (Test-Path "collated_morn_exchange_unprocessed_records_filtered.csv") {
-              Write-Host "FOUND: collated_morn_exchange_unprocessed_records_filtered.csv"
-          }
-          else {
-              Write-Error "MISSING: collated_morn_exchange_unprocessed_records_filtered.csv"
-              exit 1
-          }
-
-
-      # ============================================================
-      # STEP 5: CHECK GOOGLE CHROME
-      # ============================================================
-
-      - name: Check Google Chrome
-        shell: powershell
-        run: |
-
-          $chromePaths = @(
-              "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe",
-              "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
-          )
-
-          $chromeFound = $false
-
-          foreach ($chromePath in $chromePaths) {
-
-              if (Test-Path $chromePath) {
-
-                  Write-Host "Chrome found at:"
-                  Write-Host $chromePath
-
-                  $chromeFound = $true
-                  break
-              }
-          }
-
-          if (-not $chromeFound) {
-
-              Write-Host "Chrome not found."
-              Write-Host "Installing Chrome..."
-
-              winget install Google.Chrome `
-                --accept-package-agreements `
-                --accept-source-agreements
-
-          }
-
-
-      # ============================================================
-      # STEP 6: CREATE DOWNLOAD DIRECTORY
-      # ============================================================
-
-      - name: Create Download Directory
-        shell: powershell
-        run: |
-
-          New-Item `
-            -ItemType Directory `
-            -Force `
-            -Path downloads
-
-
-      # ============================================================
-      # STEP 7: CREATE run_crawler.py DYNAMICALLY
-      # ============================================================
-
-      - name: Create run_crawler.py
-        shell: powershell
-        run: |
-
-          @'
-          import os
-          import sys
-          import time
-          import shutil
-
-          from selenium import webdriver
-          from selenium.webdriver.chrome.options import Options
-          from selenium.webdriver.chrome.service import Service
-          from webdriver_manager.chrome import ChromeDriverManager
-
-
-          # ============================================================
-          # PATH CONFIGURATION
-          # ============================================================
-
-          BASE_DIR = os.getcwd()
-
-          EXT_PATH = os.path.abspath("./uivision-extension")
-
-          HTML_RUNNER = os.path.abspath("./ui.vision.html")
-
-          INPUT_CSV = os.path.abspath(
-              "collated_morn_exchange_unprocessed_records_filtered.csv"
-          )
-
-          MACRO_JSON = os.path.abspath(
-              "us_etf_ttm_executor.json"
-          )
-
-          DOWNLOAD_DIR = os.path.abspath("./downloads")
-
-
-          os.makedirs(
-              DOWNLOAD_DIR,
-              exist_ok=True
-          )
-
-
-          print("=" * 70)
-          print("UI.VISION GITHUB ACTIONS CRAWLER")
-          print("=" * 70)
-
-          print()
-          print("BASE_DIR:")
-          print(BASE_DIR)
-
-          print()
-          print("EXT_PATH:")
-          print(EXT_PATH)
-
-          print()
-          print("HTML_RUNNER:")
-          print(HTML_RUNNER)
-
-          print()
-          print("INPUT_CSV:")
-          print(INPUT_CSV)
-
-          print()
-          print("MACRO_JSON:")
-          print(MACRO_JSON)
-
-          print()
-          print("DOWNLOAD_DIR:")
-          print(DOWNLOAD_DIR)
-
-
-          # ============================================================
-          # CHECK REQUIRED FILES
-          # ============================================================
-
-          print()
-          print("=" * 70)
-          print("CHECKING REQUIRED FILES")
-          print("=" * 70)
-
-
-          if not os.path.exists(INPUT_CSV):
-
-              print("ERROR: INPUT CSV NOT FOUND")
-              print(INPUT_CSV)
-
-              sys.exit(1)
-
-
-          print("FOUND INPUT CSV")
-
-
-          if not os.path.exists(MACRO_JSON):
-
-              print("ERROR: MACRO JSON NOT FOUND")
-              print(MACRO_JSON)
-
-              sys.exit(1)
-
-
-          print("FOUND MACRO JSON")
-
-
-          # ============================================================
-          # CHECK UI.VISION EXTENSION
-          # ============================================================
-
-          print()
-          print("=" * 70)
-          print("CHECKING UI.VISION EXTENSION")
-          print("=" * 70)
-
-
-          if not os.path.exists(EXT_PATH):
-
-              print()
-              print("WARNING:")
-              print("UI.Vision extension directory does not exist.")
-              print()
-              print("Expected:")
-              print(EXT_PATH)
-              print()
-              print("Chrome will start, but UI.Vision extension")
-              print("will NOT be loaded.")
-
-          else:
-
-              manifest = os.path.join(
-                  EXT_PATH,
-                  "manifest.json"
-              )
-
-
-              if os.path.exists(manifest):
-
-                  print("FOUND UI.VISION EXTENSION")
-                  print(manifest)
-
-              else:
-
-                  print()
-                  print("WARNING:")
-                  print("uivision-extension exists but manifest.json")
-                  print("was not found.")
-
-
-          # ============================================================
-          # CHECK UI.VISION HTML RUNNER
-          # ============================================================
-
-          print()
-          print("=" * 70)
-          print("CHECKING UI.VISION HTML RUNNER")
-          print("=" * 70)
-
-
-          if not os.path.exists(HTML_RUNNER):
-
-              print("WARNING: ui.vision.html NOT FOUND")
-
-          else:
-
-              print("FOUND UI.VISION HTML RUNNER")
-
-
-          # ============================================================
-          # CONFIGURE CHROME
-          # ============================================================
-
-          print()
-          print("=" * 70)
-          print("CONFIGURING CHROME")
-          print("=" * 70)
-
-
-          chrome_options = Options()
-
-
-          # IMPORTANT:
-          # DO NOT ADD --headless
-          #
-          # This runs Chrome normally.
-
-
-          if os.path.exists(EXT_PATH):
-
-              manifest = os.path.join(
-                  EXT_PATH,
-                  "manifest.json"
-              )
-
-
-              if os.path.exists(manifest):
-
-                  chrome_options.add_argument(
-                      f"--load-extension={EXT_PATH}"
-                  )
-
-                  print("UI.Vision extension configured.")
-
-
-          chrome_options.add_argument(
-              "--window-size=1920,1080"
-          )
-
-
-          chrome_options.add_argument(
-              "--disable-notifications"
-          )
-
-
-          chrome_options.add_argument(
-              "--disable-popup-blocking"
-          )
-
-
-          chrome_options.add_argument(
-              "--no-first-run"
-          )
-
-
-          chrome_options.add_argument(
-              "--no-default-browser-check"
-          )
-
-
-          # ============================================================
-          # DOWNLOAD SETTINGS
-          # ============================================================
-
-          prefs = {
-
-              "download.default_directory": DOWNLOAD_DIR,
-
-              "download.prompt_for_download": False,
-
-              "download.directory_upgrade": True,
-
-              "safebrowsing.enabled": True
-
-          }
-
-
-          chrome_options.add_experimental_option(
-              "prefs",
-              prefs
-          )
-
-
-          # ============================================================
-          # START CHROME
-          # ============================================================
-
-          print()
-          print("=" * 70)
-          print("STARTING CHROME")
-          print("=" * 70)
-
-
-          driver = None
-
-
-          try:
-
-              driver = webdriver.Chrome(
-                  service=Service(
-                      ChromeDriverManager().install()
-                  ),
-                  options=chrome_options
-              )
-
-
-              print("Chrome started successfully.")
-
-
-              # ========================================================
-              # OPEN UI.VISION RUNNER
-              # ========================================================
-
-              if os.path.exists(HTML_RUNNER):
-
-                  runner_url = (
-                      f"file:///{HTML_RUNNER.replace(os.sep, '/')}"
-                      "?direct=1"
-                      "&macro=us_etf_ttm_executor"
-                      "&closeRPA=0"
-                  )
-
-
-                  print()
-                  print("=" * 70)
-                  print("OPENING UI.VISION RUNNER")
-                  print("=" * 70)
-
-                  print(runner_url)
-
-
-                  driver.get(runner_url)
-
-
-                  print()
-                  print("UI.Vision runner opened.")
-
-
-              else:
-
-                  print()
-                  print("ERROR: ui.vision.html does not exist.")
-
-                  print(
-                      "The UI.Vision runner cannot be started."
-                  )
-
-                  sys.exit(1)
-
-
-              # ========================================================
-              # WAIT FOR GENERATED CSV
-              # ========================================================
-
-              print()
-              print("=" * 70)
-              print("WAITING FOR GENERATED CSV")
-              print("=" * 70)
-
-
-              timeout_sec = 3000
-
-              poll_interval = 10
-
-              elapsed = 0
-
-              found_file = None
-
-
-              while elapsed < timeout_sec:
-
-
-                  print(
-                      f"Checking for report... "
-                      f"{elapsed}/{timeout_sec} seconds"
-                  )
-
-
-                  candidates = []
-
-
-                  # Search entire GitHub workspace
-
-                  for root, dirs, files in os.walk(BASE_DIR):
-
-                      for file in files:
-
-                          if (
-                              file.startswith(
-                                  "competitor_etf_report_"
-                              )
-                              and file.endswith(".csv")
-                          ):
-
-                              full_path = os.path.join(
-                                  root,
-                                  file
-                              )
-
-
-                              candidates.append(full_path)
-
-
-                  # ----------------------------------------------------
-
-                  if candidates:
-
-
-                      print()
-                      print("REPORT FOUND!")
-
-
-                      for candidate in candidates:
-
-                          print(candidate)
-
-
-                      found_file = candidates[0]
-
-
-                      destination = os.path.join(
-                          BASE_DIR,
-                          os.path.basename(found_file)
-                      )
-
-
-                      if (
-                          os.path.abspath(found_file)
-                          != os.path.abspath(destination)
-                      ):
-
-                          print()
-                          print("Copying report to repository root...")
-
-
-                          shutil.copy2(
-                              found_file,
-                              destination
-                          )
-
-
-                          found_file = destination
-
-
-                      print()
-                      print("SUCCESSFUL REPORT:")
-
-                      print(found_file)
-
-
-                      break
-
-
-                  # ----------------------------------------------------
-
-                  time.sleep(poll_interval)
-
-                  elapsed += poll_interval
-
-
-              # ========================================================
-              # FINAL RESULT
-              # ========================================================
-
-              if not found_file:
-
-
-                  print()
-                  print("=" * 70)
-                  print("ERROR: CSV WAS NOT GENERATED")
-                  print("=" * 70)
-
-
-                  print()
-                  print("FINAL WORKSPACE FILE LIST:")
-
-
-                  for root, dirs, files in os.walk(BASE_DIR):
-
-                      for file in files:
-
-                          print(
-                              os.path.join(root, file)
-                          )
-
-
-                  sys.exit(1)
-
-
-              print()
-              print("=" * 70)
-              print("CRAWLER COMPLETED SUCCESSFULLY")
-              print("=" * 70)
-
-
-          except Exception as e:
-
-              print()
-              print("=" * 70)
-              print("CRAWLER ERROR")
-              print("=" * 70)
-
-              print(str(e))
-
-              raise
-
-
-          finally:
-
-
-              if driver:
-
-                  print()
-                  print("Closing Chrome...")
-
-                  driver.quit()
-
-
-          '@ | Out-File `
-            -FilePath "run_crawler.py" `
-            -Encoding utf8
-
-          Write-Host "========================================"
-          Write-Host "run_crawler.py CREATED SUCCESSFULLY"
-          Write-Host "========================================"
-
-          Get-Item run_crawler.py
-
-
-      # ============================================================
-      # STEP 8: DOWNLOAD UI.VISION HTML RUNNER
-      # ============================================================
-
-      - name: Download UI.Vision HTML Runner
-        shell: powershell
-        run: |
-
-          Invoke-WebRequest `
-            -Uri "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" `
-            -OutFile "ui.vision.html"
-
-          Write-Host "UI.Vision HTML Runner downloaded."
-
-          Get-Item ui.vision.html
-
-
-      # ============================================================
-      # STEP 9: RUN CRAWLER
-      # ============================================================
-
-      - name: Run UI.Vision Automation
-        shell: powershell
-        run: |
-
-          python run_crawler.py
-
-
-      # ============================================================
-      # STEP 10: FIND GENERATED REPORT
-      # ============================================================
-
-      - name: Find Generated Reports
-        if: always()
-        shell: powershell
-        run: |
-
-          Write-Host "========================================"
-          Write-Host "SEARCHING FOR GENERATED REPORTS"
-          Write-Host "========================================"
-
-
-          $reports = Get-ChildItem `
-            -Path $env:GITHUB_WORKSPACE `
-            -Recurse `
-            -Filter "competitor_etf_report_*.csv"
-
-
-          if ($reports) {
-
-              Write-Host "REPORTS FOUND:"
-
-
-              foreach ($report in $reports) {
-
-                  Write-Host $report.FullName
-
-              }
-
-          }
-          else {
-
-              Write-Host "NO REPORTS FOUND."
-
-          }
-
-
-      # ============================================================
-      # STEP 11: COMMIT REPORT
-      # ============================================================
-
-      - name: Commit and Push Generated Report
-        if: success()
-        shell: powershell
-        run: |
-
-          $reports = Get-ChildItem `
-            -Path $env:GITHUB_WORKSPACE `
-            -Recurse `
-            -Filter "competitor_etf_report_*.csv"
-
-
-          if (-not $reports) {
-
-              Write-Error "No generated report found."
-
-              exit 1
-
-          }
-
-
-          git config --global user.name "github-actions[bot]"
-
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-
-          foreach ($report in $reports) {
-
-              Write-Host "Adding report:"
-
-              Write-Host $report.FullName
-
-
-              git add $report.FullName
-
-          }
-
-
-          $status = git status --porcelain
-
-
-          if ([string]::IsNullOrWhiteSpace($status)) {
-
-              Write-Host "No changes detected."
-
-          }
-          else {
-
-              git commit `
-                -m "Auto-update competitor ETF extraction report [skip ci]"
-
-
-              git push origin HEAD:master
-
-          }
-
-
-      # ============================================================
-      # STEP 12: UPLOAD ARTIFACT
-      # ============================================================
-
-      - name: Upload Report Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: competitor-etf-report
-          path: "**/competitor_etf_report_*.csv"
-          if-no-files-found: warn
-```
+    - name: Checkout Repository Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install selenium beautifulsoup4 certifi
+
+    - name: Create Python Script File
+      shell: powershell
+      run: |
+        @'
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.support.ui import WebDriverWait
+        from bs4 import BeautifulSoup
+
+        chrome_options = Options()
+        chrome_options.add_argument('--headless=new')
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+            "userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        })
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+        url = r"https://www.marketwatch.com/investing/fund/PJSM"
+        driver.get(url)
+
+        html = driver.page_source
+        soup = BeautifulSoup(html, 'html.parser')
+        driver.quit()
+
+        # Save the HTML page locally
+        local_filename = "scraped_output.html"
+        with open(local_filename, "w", encoding="utf-8") as f:
+            f.write(html)
+
+        print("Scrape successful")
+        print(f"Saved HTML to {local_filename}")
+        '@ | Out-File -FilePath inline_script.py -Encoding utf8
+
+    - name: Execute Scraper Script
+      run: python inline_script.py
+
+    - name: Commit and Push Scraped HTML to Repository
+      shell: bash
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add scraped_output.html
+        
+        # Check if there are changes before committing
+        if git diff --staged --quiet; then
+          echo "No changes detected in scraped_output.html. Skipping commit."
+        else
+          git commit -m "Auto-update scraped_output.html [skip ci]"
+          git push origin HEAD
+        fi
+
+    - name: Upload HTML as workflow artifact (backup)
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: scraped-html
+        path: scraped_output.html
