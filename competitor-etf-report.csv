@@ -1,0 +1,61 @@
+SecId,PerformanceId,ExchangeId,Ticker,Date,Inception_Date,Extracted_Title,Present_In,Players,Status,IST_Timestamp,CST_Timestamp
+F00001UFT2,0P00021D6Z,EX$$$$XNAS,HQDG,2026-09-04,2026-09-03,Raub Brock Dividend Growth ETF,"NASDAQ, Morningstar-SQL",wsj,Found,9/7/2026 15:23,9/7/2026 04:53
+F00001UFT2,0P00021D6Z,EX$$$$XNAS,HQDG,2026-09-04,2026-09-03,Raub Brock Dividend Growth ETF,"NASDAQ, Morningstar-SQL",Barrons,Found,9/7/2026 15:23,9/7/2026 04:53
+F00001UFT2,0P00021D6Z,EX$$$$XNAS,HQDG,2026-09-04,2026-09-03,Raub Brock Dividend Growth ETF,"NASDAQ, Morningstar-SQL",Marketwatch,Found,9/7/2026 15:23,9/7/2026 04:53
+F00001UFT2,0P00021D6Z,EX$$$$XNAS,HQDG,2026-09-04,2026-09-03,Raub Brock Dividend Growth ETF,"NASDAQ, Morningstar-SQL",ETFDB,Found,9/7/2026 15:23,9/7/2026 04:53
+F00001UFT2,0P00021D6Z,EX$$$$XNAS,HQDG,2026-09-04,2026-09-03,Raub Brock Dividend Growth ETF,"NASDAQ, Morningstar-SQL",ETF,Found,9/7/2026 15:23,9/7/2026 04:53
+F00001UFT2,0P00021D6Z,EX$$$$XNAS,HQDG,2026-09-04,2026-09-03,Raub Brock Dividend Growth ETF,"NASDAQ, Morningstar-SQL",Bloomberg,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JO0S,0P00035NJR,EX$$$$XNAS,AIFR,2026-09-03,2026-09-09,Defiance Global Foundries ETF,Morningstar-SQL,wsj,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JO0S,0P00035NJR,EX$$$$XNAS,AIFR,2026-09-03,2026-09-09,Defiance Global Foundries ETF,Morningstar-SQL,Barrons,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JO0S,0P00035NJR,EX$$$$XNAS,AIFR,2026-09-03,2026-09-09,Defiance Global Foundries ETF,Morningstar-SQL,Marketwatch,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JO0S,0P00035NJR,EX$$$$XNAS,AIFR,2026-09-03,2026-09-09,Defiance Global Foundries ETF,Morningstar-SQL,ETFDB,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JO0S,0P00035NJR,EX$$$$XNAS,AIFR,2026-09-03,2026-09-09,Defiance Global Foundries ETF,Morningstar-SQL,ETF,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JO0S,0P00035NJR,EX$$$$XNAS,AIFR,2026-09-03,2026-09-09,Defiance Global Foundries ETF,Morningstar-SQL,Bloomberg,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRJN,0P00035UTJ,EX$$$$ARCX,PJIN,2026-09-04,2026-09-01,PGIM Jennison International Core Eq ETF,"NYSE, Morningstar-SQL",wsj,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRJN,0P00035UTJ,EX$$$$ARCX,PJIN,2026-09-04,2026-09-01,PGIM Jennison International Core Eq ETF,"NYSE, Morningstar-SQL",Barrons,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRJN,0P00035UTJ,EX$$$$ARCX,PJIN,2026-09-04,2026-09-01,PGIM Jennison International Core Eq ETF,"NYSE, Morningstar-SQL",Marketwatch,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRJN,0P00035UTJ,EX$$$$ARCX,PJIN,2026-09-04,2026-09-01,PGIM Jennison International Core Eq ETF,"NYSE, Morningstar-SQL",ETFDB,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRJN,0P00035UTJ,EX$$$$ARCX,PJIN,2026-09-04,2026-09-01,PGIM Jennison International Core Eq ETF,"NYSE, Morningstar-SQL",ETF,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRJN,0P00035UTJ,EX$$$$ARCX,PJIN,2026-09-04,2026-09-01,PGIM Jennison International Core Eq ETF,"NYSE, Morningstar-SQL",Bloomberg,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRR3,0P00035V3A,EX$$$$XNAS,CRAM,2026-09-03,2026-09-09,Defiance China Memory ETF,Morningstar-SQL,wsj,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRR3,0P00035V3A,EX$$$$XNAS,CRAM,2026-09-03,2026-09-09,Defiance China Memory ETF,Morningstar-SQL,Barrons,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRR3,0P00035V3A,EX$$$$XNAS,CRAM,2026-09-03,2026-09-09,Defiance China Memory ETF,Morningstar-SQL,Marketwatch,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRR3,0P00035V3A,EX$$$$XNAS,CRAM,2026-09-03,2026-09-09,Defiance China Memory ETF,Morningstar-SQL,ETFDB,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRR3,0P00035V3A,EX$$$$XNAS,CRAM,2026-09-03,2026-09-09,Defiance China Memory ETF,Morningstar-SQL,ETF,Found,9/7/2026 15:23,9/7/2026 04:53
+F00002JRR3,0P00035V3A,EX$$$$XNAS,CRAM,2026-09-03,2026-09-09,Defiance China Memory ETF,Morningstar-SQL,Bloomberg,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,UCBG,09/02/2026,,State Street® SPDR® UC Investments 90/10 Endowment Strategy Index ETF,NYSE,wsj,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,UCBG,09/02/2026,,State Street® SPDR® UC Investments 90/10 Endowment Strategy Index ETF,NYSE,Barrons,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,UCBG,09/02/2026,,State Street® SPDR® UC Investments 90/10 Endowment Strategy Index ETF,NYSE,Marketwatch,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,UCBG,09/02/2026,,State Street® SPDR® UC Investments 90/10 Endowment Strategy Index ETF,NYSE,ETFDB,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,UCBG,09/02/2026,,State Street® SPDR® UC Investments 90/10 Endowment Strategy Index ETF,NYSE,ETF,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,UCBG,09/02/2026,,State Street® SPDR® UC Investments 90/10 Endowment Strategy Index ETF,NYSE,Bloomberg,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,DIVH,09/02/2026,,Integrity Dividend Harvest ETF,NYSE,wsj,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,DIVH,09/02/2026,,Integrity Dividend Harvest ETF,NYSE,Barrons,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,DIVH,09/02/2026,,Integrity Dividend Harvest ETF,NYSE,Marketwatch,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,DIVH,09/02/2026,,Integrity Dividend Harvest ETF,NYSE,ETFDB,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,DIVH,09/02/2026,,Integrity Dividend Harvest ETF,NYSE,ETF,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,DIVH,09/02/2026,,Integrity Dividend Harvest ETF,NYSE,Bloomberg,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,VOOY,09/02/2026,,XFUNDS Large Cap Income ETF,NYSE,wsj,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,VOOY,09/02/2026,,XFUNDS Large Cap Income ETF,NYSE,Barrons,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,VOOY,09/02/2026,,XFUNDS Large Cap Income ETF,NYSE,Marketwatch,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,VOOY,09/02/2026,,XFUNDS Large Cap Income ETF,NYSE,ETFDB,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,VOOY,09/02/2026,,XFUNDS Large Cap Income ETF,NYSE,ETF,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,VOOY,09/02/2026,,XFUNDS Large Cap Income ETF,NYSE,Bloomberg,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,PJSM,09/03/2026,,PGIM Jennison Small-Mid Cap Core Equity ETF,NYSE,wsj,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,PJSM,09/03/2026,,PGIM Jennison Small-Mid Cap Core Equity ETF,NYSE,Barrons,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,PJSM,09/03/2026,,PGIM Jennison Small-Mid Cap Core Equity ETF,NYSE,Marketwatch,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,PJSM,09/03/2026,,PGIM Jennison Small-Mid Cap Core Equity ETF,NYSE,ETFDB,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,PJSM,09/03/2026,,PGIM Jennison Small-Mid Cap Core Equity ETF,NYSE,ETF,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,PJSM,09/03/2026,,PGIM Jennison Small-Mid Cap Core Equity ETF,NYSE,Bloomberg,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,TSCZ,09/03/2026,,T. Rowe Price Securitized Income ETF,NYSE,wsj,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,TSCZ,09/03/2026,,T. Rowe Price Securitized Income ETF,NYSE,Barrons,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,TSCZ,09/03/2026,,T. Rowe Price Securitized Income ETF,NYSE,Marketwatch,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,TSCZ,09/03/2026,,T. Rowe Price Securitized Income ETF,NYSE,ETFDB,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,TSCZ,09/03/2026,,T. Rowe Price Securitized Income ETF,NYSE,ETF,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,TSCZ,09/03/2026,,T. Rowe Price Securitized Income ETF,NYSE,Bloomberg,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,SKHQ,2026-09-02,,Leverage Shares 2X Short Sk Hynix Daily ETF,CBOE,wsj,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,SKHQ,2026-09-02,,Leverage Shares 2X Short Sk Hynix Daily ETF,CBOE,Barrons,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,SKHQ,2026-09-02,,Leverage Shares 2X Short Sk Hynix Daily ETF,CBOE,Marketwatch,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,SKHQ,2026-09-02,,Leverage Shares 2X Short Sk Hynix Daily ETF,CBOE,ETFDB,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,SKHQ,2026-09-02,,Leverage Shares 2X Short Sk Hynix Daily ETF,CBOE,ETF,Found,9/7/2026 15:23,9/7/2026 04:53
+,,,SKHQ,2026-09-02,,Leverage Shares 2X Short Sk Hynix Daily ETF,CBOE,Bloomberg,Found,9/7/2026 15:23,9/7/2026 04:53
