@@ -595,40 +595,85 @@ jobs:
           '@ | Out-File -FilePath "run_macro.py" -Encoding utf8
 
           python run_macro.py
-
-      - name: Commit and Push Status and CSV to Master
+      - name: Commit and Push CSV to Master
         shell: powershell
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global core.autocrlf false
-
-          # Verify files exist in runner directory
-          Write-Host "Checking local files to commit:"
-          Get-ChildItem -Path . -Filter "*.txt" | Select-Object Name, Length
-          Get-ChildItem -Path . -Filter "*.csv" | Select-Object Name, Length
-
-          # Switch or track master branch explicitly
-          git fetch origin master
-          git checkout master
-
-          # Force add files
-          git add -f installation_status.txt competitor-etf-report.csv
-
-          # Check git status
-          $status = git status --porcelain
-          if ([string]::IsNullOrWhiteSpace($status)) {
-            Write-Host "No file changes detected against master."
-          } else {
-            Write-Host "Staged changes found. Committing and pushing..."
-            git commit -m "Update MarketWatch competitor report and status [skip ci]"
-            git push origin master
-            Write-Host "Successfully committed and pushed to master!"
+      
+          Write-Host "=========================================="
+          Write-Host "CHECKING GENERATED FILE"
+          Write-Host "=========================================="
+      
+          $csvFile = "competitor-etf-report.csv"
+      
+          if (-not (Test-Path $csvFile)) {
+              Write-Error "ERROR: $csvFile was NOT generated!"
+              exit 1
           }
-
-      - name: Upload Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: competitor-etf-report
-          path: competitor-etf-report.csv
+      
+          Write-Host "CSV file found:"
+          Get-Item $csvFile | Format-List Name, Length, FullName
+      
+          Write-Host "=========================================="
+          Write-Host "CURRENT GIT STATUS"
+          Write-Host "=========================================="
+      
+          git status --short
+      
+          Write-Host "=========================================="
+          Write-Host "ADDING FILES TO GIT"
+          Write-Host "=========================================="
+      
+          git add -f installation_status.txt
+          git add -f competitor-etf-report.csv
+      
+          Write-Host "=========================================="
+          Write-Host "STAGED FILES"
+          Write-Host "=========================================="
+      
+          git diff --cached --name-status
+      
+          Write-Host "=========================================="
+          Write-Host "VERIFY CSV IS STAGED"
+          Write-Host "=========================================="
+      
+          $stagedFiles = git diff --cached --name-only
+      
+          if ($stagedFiles -notcontains "competitor-etf-report.csv") {
+              Write-Error "ERROR: competitor-etf-report.csv is NOT staged!"
+              Write-Host "Staged files are:"
+              git diff --cached --name-only
+              exit 1
+          }
+      
+          Write-Host "CSV successfully staged."
+      
+          Write-Host "=========================================="
+          Write-Host "COMMITTING FILES"
+          Write-Host "=========================================="
+      
+          git commit -m "Update competitor ETF report [skip ci]"
+      
+          Write-Host "=========================================="
+          Write-Host "PUSHING TO MASTER"
+          Write-Host "=========================================="
+      
+          git push origin HEAD:master
+      
+          Write-Host "=========================================="
+          Write-Host "SUCCESS"
+          Write-Host "=========================================="
+      
+          Write-Host "Latest commit:"
+          git log -1 --stat
+      
+          Write-Host "Final repository status:"
+          git status --short
+      
+            - name: Upload Artifact
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                name: competitor-etf-report
+                path: competitor-etf-report.csv
