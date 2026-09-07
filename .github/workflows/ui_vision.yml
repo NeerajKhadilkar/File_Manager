@@ -1,8 +1,6 @@
 name: Run UI.Vision TTM Crawler & Commit CSV
 
 on:
-  push:
-    branches: [ master ]
   workflow_dispatch:
 
 permissions:
@@ -24,105 +22,108 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install System Dependencies (Chrome & Virtual Display)
+      - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb google-chrome-stable curl
+          pip install selenium webdriver-manager pandas
 
-      - name: Setup UI.Vision Folders & Copy Input CSV
+      - name: Download UI.Vision HTML Runner (if missing)
         run: |
-          # 1. Download ui.vision.html if missing
           if [ ! -f "./ui.vision.html" ]; then
             curl -sSL "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" -o ui.vision.html
           fi
 
-          # 2. Verify input CSV exists in repo
-          if [ ! -f "./collated_morn_exchange_unprocessed_records_filtered.csv" ]; then
-            echo "Error: collated_morn_exchange_unprocessed_records_filtered.csv not found in repository root!"
-            exit 1
-          fi
-
-          # 3. UI.Vision looks for csvReadArray files in its datasources directory
-          # We create the profile and seed the macro + csv datasource into Chrome's extension storage
-          PROFILE_DIR="/tmp/chrome_uivision_profile"
-          mkdir -p "${PROFILE_DIR}/Default/uivision/datasources"
-          mkdir -p "${PROFILE_DIR}/Default/uivision/macros"
-
-          # Copy input CSV to datasources
-          cp ./collated_morn_exchange_unprocessed_records_filtered.csv "${PROFILE_DIR}/Default/uivision/datasources/"
-
-          # Copy macro JSON
-          cp ./us_etf_ttm_executor.json "${PROFILE_DIR}/Default/uivision/macros/"
-
-      - name: Run UI.Vision under Virtual Framebuffer
+      - name: Execute Crawler via Virtual Display
         run: |
-          cat << 'EOF' > run_headless.py
+          cat << 'EOF' > run_crawler.py
           import os
+          import sys
           import time
+          import json
           import shutil
-          import subprocess
+          from selenium import webdriver
+          from selenium.webdriver.chrome.options import Options
+          from selenium.webdriver.chrome.service import Service
+          from webdriver_manager.chrome import ChromeDriverManager
 
-          CHROME_BIN = "/usr/bin/google-chrome"
-          EXT_DIR = os.path.abspath("./uivision-extension")
+          EXT_PATH = os.path.abspath("./uivision-extension")
           HTML_RUNNER = os.path.abspath("./ui.vision.html")
-          PROFILE_DIR = "/tmp/chrome_uivision_profile"
-          DOWNLOAD_DIR = os.path.expanduser("~/Downloads")
+          INPUT_CSV = os.path.abspath("collated_morn_exchange_unprocessed_records_filtered.csv")
+          MACRO_JSON = os.path.abspath("us_etf_ttm_executor.json")
+          DOWNLOAD_DIR = os.path.abspath("./downloads")
           os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-          # Construct UI.Vision auto-run command
-          url = f"file://{HTML_RUNNER}?direct=1&macro=us_etf_ttm_executor&closeRPA=0"
+          if not os.path.exists(INPUT_CSV):
+              print(f"ERROR: Missing {INPUT_CSV}")
+              sys.exit(1)
 
-          chrome_flags = [
-              CHROME_BIN,
-              f"--load-extension={EXT_DIR}",
-              f"--user-data-dir={PROFILE_DIR}",
-              "--no-sandbox",
-              "--disable-dev-shm-usage",
-              "--disable-gpu",
-              "--window-size=1920,1080",
-              url
-          ]
+          if not os.path.exists(MACRO_JSON):
+              print(f"ERROR: Missing {MACRO_JSON}")
+              sys.exit(1)
 
-          print(f"Launching Chrome with UI.Vision macro...")
-          proc = subprocess.Popen(chrome_flags)
+          # Configure Chrome options to run with unpacked extension
+          chrome_options = Options()
+          chrome_options.add_argument(f"--load-extension={EXT_PATH}")
+          chrome_options.add_argument("--no-sandbox")
+          chrome_options.add_argument("--disable-dev-shm-usage")
+          chrome_options.add_argument("--disable-gpu")
+          chrome_options.add_argument("--window-size=1920,1080")
 
-          # Poll for generated CSV in Downloads or repository directory
-          timeout = 2400  # 40 minutes max
-          start_time = time.time()
-          found_csv = None
+          prefs = {
+              "download.default_directory": DOWNLOAD_DIR,
+              "download.prompt_for_download": False,
+              "download.directory_upgrade": True,
+              "safebrowsing.enabled": True
+          }
+          chrome_options.add_experimental_option("prefs", prefs)
 
-          while time.time() - start_time < timeout:
-              candidates = []
-              # Check system downloads
-              if os.path.exists(DOWNLOAD_DIR):
-                  candidates += [os.path.join(DOWNLOAD_DIR, f) for f in os.listdir(DOWNLOAD_DIR) if f.startswith("competitor_etf_report_") and f.endswith(".csv")]
-              # Check profile downloads
-              uivision_download = os.path.join(PROFILE_DIR, "Default", "Downloads")
-              if os.path.exists(uivision_download):
-                  candidates += [os.path.join(uivision_download, f) for f in os.listdir(uivision_download) if f.startswith("competitor_etf_report_") and f.endswith(".csv")]
-              # Check root workspace
-              candidates += [f for f in os.listdir(".") if f.startswith("competitor_etf_report_") and f.endswith(".csv")]
+          print("Starting Chrome Driver with UI.Vision...")
+          driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+
+          # Step 1: Open runner
+          runner_url = f"file://{HTML_RUNNER}?direct=1&macro=us_etf_ttm_executor&closeRPA=0"
+          driver.get(runner_url)
+          print(f"Opened UI.Vision runner: {runner_url}")
+
+          # Step 2: Poll for generated CSV in Downloads or repository directory
+          timeout_sec = 2400
+          poll_interval = 10
+          elapsed = 0
+          found_file = None
+
+          print("Waiting for competitor_etf_report_*.csv to generate...")
+          while elapsed < timeout_sec:
+              # Check download directory
+              candidates = [
+                  os.path.join(DOWNLOAD_DIR, f) for f in os.listdir(DOWNLOAD_DIR)
+                  if f.startswith("competitor_etf_report_") and f.endswith(".csv")
+              ]
+              # Also check repo root
+              candidates += [
+                  f for f in os.listdir(".")
+                  if f.startswith("competitor_etf_report_") and f.endswith(".csv")
+              ]
 
               if candidates:
-                  found_csv = candidates[0]
-                  print(f"Found generated output CSV: {found_csv}")
-                  target_name = os.path.basename(found_csv)
-                  if os.path.abspath(found_csv) != os.path.abspath(target_name):
-                      shutil.copyfile(found_csv, target_name)
+                  found_file = candidates[0]
+                  print(f"Successfully generated CSV: {found_file}")
+                  # Copy to root if it is in downloads
+                  dest = os.path.basename(found_file)
+                  if os.path.abspath(found_file) != os.path.abspath(dest):
+                      shutil.copyfile(found_file, dest)
                   break
-              time.sleep(10)
 
-          proc.terminate()
-          try:
-              proc.wait(timeout=10)
-          except Exception:
-              proc.kill()
+              time.sleep(poll_interval)
+              elapsed += poll_interval
 
-          if not found_csv:
-              print("Macro finished without producing an output CSV.")
+          driver.quit()
+
+          if not found_file:
+              print("WARNING: Timeout reached without CSV being generated.")
           EOF
 
-          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python run_headless.py
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python run_crawler.py
 
       - name: Commit and Push Generated Report CSV to Master
         shell: bash
@@ -130,14 +131,20 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Stage the newly created competitor report
-          git add competitor_etf_report_*.csv
+          # Find any matching generated CSV files
+          REPORT_FILES=$(ls competitor_etf_report_*.csv 2>/dev/null || true)
           
-          if git diff --staged --quiet; then
-            echo "No new CSV file found to commit."
+          if [ -z "$REPORT_FILES" ]; then
+            echo "No report file matching 'competitor_etf_report_*.csv' found to commit."
           else
-            git commit -m "Auto-update competitor ETF extraction report [skip ci]"
-            git push origin master
+            echo "Staging files: $REPORT_FILES"
+            git add $REPORT_FILES
+            if git diff --staged --quiet; then
+              echo "No diff detected. Nothing to commit."
+            else
+              git commit -m "Auto-update competitor ETF extraction report [skip ci]"
+              git push origin master
+            fi
           fi
 
       - name: Upload Artifact (Backup)
