@@ -581,7 +581,6 @@ jobs:
                       r = list(csv.reader(f))
                       data = r[1:] if len(r) > 1 else []
                       for line in data:
-                          # STRICT FILTER: ONLY MARKETWATCH
                           if len(line) >= 9 and line[8].strip().lower() == "marketwatch":
                               rows.append([line[0], line[1], line[2], line[3], line[4], line[5], line[6], line[7], "Marketwatch", "Found", ist_val, cst_val])
 
@@ -598,18 +597,34 @@ jobs:
           python run_macro.py
 
       - name: Commit and Push Status and CSV to Master
-        shell: bash
+        shell: powershell
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global core.autocrlf false
 
-          git add installation_status.txt competitor-etf-report.csv
-          if git diff --staged --quiet; then
-            echo "No changes detected. Skipping commit."
-          else
-            git commit -m "Update MarketWatch competitor report [skip ci]"
-            git push origin HEAD:master
-          fi
+          # Verify files exist in runner directory
+          Write-Host "Checking local files to commit:"
+          Get-ChildItem -Path . -Filter "*.txt" | Select-Object Name, Length
+          Get-ChildItem -Path . -Filter "*.csv" | Select-Object Name, Length
+
+          # Switch or track master branch explicitly
+          git fetch origin master
+          git checkout master
+
+          # Force add files
+          git add -f installation_status.txt competitor-etf-report.csv
+
+          # Check git status
+          $status = git status --porcelain
+          if ([string]::IsNullOrWhiteSpace($status)) {
+            Write-Host "No file changes detected against master."
+          } else {
+            Write-Host "Staged changes found. Committing and pushing..."
+            git commit -m "Update MarketWatch competitor report and status [skip ci]"
+            git push origin master
+            Write-Host "Successfully committed and pushed to master!"
+          }
 
       - name: Upload Artifact
         if: always()
