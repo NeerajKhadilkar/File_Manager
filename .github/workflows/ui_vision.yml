@@ -21,14 +21,9 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Download UI.Vision HTML Runner & Build Extension
+      - name: Clone and Build UI.Vision Extension
         shell: powershell
         run: |
-          # 1. Download official ui.vision.html command-line runner
-          Write-Host "Downloading ui.vision.html..."
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/A9T9/RPA/master/ui.vision.html" -OutFile "ui.vision.html"
-
-          # 2. Clone and build UI.Vision extension from source
           Write-Host "Cloning UI.Vision open-source repository..."
           git clone --depth 1 https://github.com/A9T9/RPA.git uivision-repo
           
@@ -40,28 +35,32 @@ jobs:
           npm run build
           Set-Location -Path ".."
 
-          # 3. Move unpacked build into .\uivision-extension
+          # Copy compiled unpacked extension to .\uivision-extension
           Copy-Item -Path ".\uivision-repo\dist" -Destination ".\uivision-extension" -Recurse -Force
           Remove-Item -Path ".\uivision-repo" -Recurse -Force
-          Write-Host "UI.Vision successfully installed at: .\uivision-extension"
+          Write-Host "UI.Vision successfully built at: .\uivision-extension"
 
       - name: Verify Installation & Generate Status File
         shell: powershell
         run: |
           if (Test-Path -Path ".\uivision-extension\manifest.json") {
-            $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")
+            $manifest = Get-Content -Path ".\uivision-extension\manifest.json" -Raw | ConvertFrom-Json
+            $extVersion = $manifest.version
+
             $content = @"
           ==================================================
           UI.Vision Installation Status: SUCCESS
           Timestamp (UTC): $timestamp
-          Runner: Windows Latest
-          Artifact: uivision-extension and ui.vision.html built
+          Extension Version: $extVersion
+          Runner OS: Windows Latest
+          Unpacked Extension Path: .\uivision-extension
           ==================================================
           "@
             $content | Out-File -FilePath "installation_status.txt" -Encoding utf8
             Write-Host "Verification PASSED: Generated installation_status.txt"
           } else {
-            Write-Error "Verification FAILED: Extension not built properly."
+            Write-Error "Verification FAILED: manifest.json not found in built extension."
             exit 1
           }
 
@@ -76,5 +75,5 @@ jobs:
             echo "No changes detected in installation_status.txt. Skipping commit."
           else
             git commit -m "Add UI.Vision installation success report [skip ci]"
-            git push origin master
+            git push origin HEAD:master
           fi
