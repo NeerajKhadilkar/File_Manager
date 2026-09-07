@@ -1,4 +1,4 @@
-name: Run ETF Scraper & Commit CSV
+name: Run UI.Vision TTM Crawler
 
 on:
   workflow_dispatch:
@@ -7,120 +7,136 @@ permissions:
   contents: write
 
 jobs:
-  run-crawler:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  scrape:
+    runs-on: windows-latest
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout Repository Code
+
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Python 3.11
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install Dependencies
+
+      - name: Install Python Dependencies
+        shell: powershell
         run: |
-          pip install pandas requests beautifulsoup4 pytz
+          python -m pip install --upgrade pip
 
-      - name: Generate competitor-etf-report.csv
+          pip install selenium pandas
+
+
+      - name: Check Chrome
+        shell: powershell
         run: |
-          python3 - << 'EOF'
-          import os, csv
-          import requests
-          from datetime import datetime
-          import pytz
+          $chrome = "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe"
 
-          INPUT_CSV = "collated_morn_exchange_unprocessed_records_filtered.csv"
-          OUTPUT_FILE = "competitor-etf-report.csv"
+          if (Test-Path $chrome) {
+              Write-Host "Chrome found: $chrome"
+          }
+          else {
+              Write-Host "Installing Google Chrome..."
 
-          ist = pytz.timezone('Asia/Kolkata')
-          cst = pytz.timezone('America/Chicago')
-          now_utc = datetime.now(pytz.utc)
-          now_ist = now_utc.astimezone(ist)
-          now_cst = now_utc.astimezone(cst)
+              winget install Google.Chrome `
+                --accept-package-agreements `
+                --accept-source-agreements
+          }
 
-          ist_val = now_ist.strftime("%-m/%-d/%Y %H:%M")
-          cst_val = now_cst.strftime("%-m/%-d/%Y %H:%M")
 
-          headers = [
-              "SecId", "PerformanceId", "ExchangeId", "Ticker", "Date",
-              "Inception_Date", "Extracted_Title", "Present_In", "Players",
-              "Status", "IST_Timestamp", "CST_Timestamp"
-          ]
-
-          if not os.path.exists(INPUT_CSV):
-              print(f"Warning: {INPUT_CSV} missing. Generating fallback baseline row.")
-              records = [["F00001TAE8","0P0001YKZK","EX$$$$XNAS","PJSM","9/3/2026","9/3/2026","MarketWatch Fund","DB","marketwatch"]]
-          else:
-              with open(INPUT_CSV, "r", encoding="utf-8") as f:
-                  reader = list(csv.reader(f))
-                  records = reader[1:] if len(reader) > 1 else []
-
-          def check_marketwatch(ticker):
-              url = f"https://www.marketwatch.com/investing/fund/{ticker}"
-              headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-              try:
-                  res = requests.get(url, headers=headers, timeout=10)
-                  if "/search" in res.url.lower() or "search results" in res.text.lower() or "symbol not found" in res.text.lower():
-                      return "Not Found"
-                  return "Found"
-              except Exception:
-                  return "Found"
-
-          results = []
-          for r in records:
-              if len(r) < 9: continue
-              sec_id, perf_id, exch_id, ticker, date_val, incept_date, title, present_in, player = r[:9]
-              player_clean = player.strip().lower()
-
-              status = "Found"
-              if player_clean == "marketwatch":
-                  status = check_marketwatch(ticker)
-
-              display_map = {
-                  'wsj': 'wsj',
-                  'barrons': 'Barrons',
-                  'bloomberg': 'Bloomberg',
-                  'etf': 'ETF',
-                  'etfdb': 'ETFDB',
-                  'marketwatch': 'Marketwatch'
-              }
-              display_player = display_map.get(player_clean, player)
-
-              results.append([
-                  sec_id, perf_id, exch_id, ticker, date_val, incept_date,
-                  title, present_in, display_player, status, ist_val, cst_val
-              ])
-
-          with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
-              writer = csv.writer(f)
-              writer.writerow(headers)
-              writer.writerows(results)
-
-          print(f"Successfully generated {OUTPUT_FILE} with {len(results)} rows.")
-          EOF
-
-      - name: Commit and Push CSV to Master
-        shell: bash
+      - name: Debug Files
+        shell: powershell
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          git add competitor-etf-report.csv
-          if git diff --staged --quiet; then
-            echo "No changes in competitor-etf-report.csv. Skipping commit."
-          else
-            git commit -m "Auto-update competitor-etf-report.csv [skip ci]"
-            git push origin master
-          fi
+          Write-Host "===== WORKSPACE ====="
 
-      - name: Upload Artifact (Backup)
+          Get-ChildItem -Recurse | Select-Object FullName
+
+          Write-Host "===== INPUT CSV ====="
+
+          Get-ChildItem `
+            -Filter "collated_morn_exchange_unprocessed_records_filtered.csv" `
+            -Recurse
+
+          Write-Host "===== MACRO JSON ====="
+
+          Get-ChildItem `
+            -Filter "us_etf_ttm_executor.json" `
+            -Recurse
+
+
+      - name: Run UI.Vision Automation
+        shell: powershell
+        run: |
+          python run_crawler.py
+
+
+      - name: Find Generated Reports
+        if: always()
+        shell: powershell
+        run: |
+          Write-Host "===== SEARCHING FOR REPORT ====="
+
+          Get-ChildItem `
+            -Path $env:GITHUB_WORKSPACE `
+            -Recurse `
+            -Filter "competitor_etf_report_*.csv"
+
+
+      - name: Commit Generated Report
+        if: success()
+        shell: powershell
+        run: |
+
+          $reports = Get-ChildItem `
+            -Path $env:GITHUB_WORKSPACE `
+            -Recurse `
+            -Filter "competitor_etf_report_*.csv"
+
+          if ($reports.Count -eq 0) {
+
+              Write-Host "ERROR: No report generated."
+
+              exit 1
+
+          }
+
+          git config user.name "github-actions[bot]"
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          foreach ($report in $reports) {
+
+              Write-Host "Adding: $($report.FullName)"
+
+              git add $report.FullName
+
+          }
+
+          if (git diff --cached --quiet) {
+
+              Write-Host "Nothing changed."
+
+          }
+          else {
+
+              git commit `
+                -m "Auto-update competitor ETF report [skip ci]"
+
+              git push origin HEAD:master
+
+          }
+
+
+      - name: Upload Report Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: competitor-etf-report
-          path: competitor-etf-report.csv
+          path: "**/competitor_etf_report_*.csv"
+          if-no-files-found: warn
