@@ -1,4 +1,3 @@
-
 name: Install UI.Vision on Windows & Commit Status
 
 on:
@@ -10,56 +9,49 @@ permissions:
 jobs:
   run-automation:
     runs-on: windows-latest
-
     steps:
+      # 1) REQUIRED
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
+      # 2) Install UI.Vision / run macro / generate CSV here
+      #    Must write competitor-etf-report.csv into the repo workspace
+      - name: Generate competitor ETF report
+        shell: powershell
+        run: |
+          # your UI.Vision / automation commands
+          # e.g. produce competitor-etf-report.csv and installation_status.txt
+          if (-not (Test-Path "competitor-etf-report.csv")) {
+            Write-Error "CSV was not generated"
+            exit 1
+          }
+
+      # 3) Commit only if there is a real change
       - name: Commit and Push CSV
         shell: powershell
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          $csvFile = "competitor-etf-report.csv"
+          git add -f installation_status.txt competitor-etf-report.csv
 
-          Write-Host "Checking CSV file..."
-
-          if (-not (Test-Path $csvFile)) {
-              Write-Error "ERROR: $csvFile was NOT generated!"
-              exit 1
-          }
-
-          Write-Host "CSV found:"
-          Get-Item $csvFile | Format-List Name, Length, FullName
-
-          Write-Host "Git status before staging:"
           git status --short
+          git diff --cached --stat
 
-          Write-Host "Adding files..."
-
-          git add -f installation_status.txt
-          git add -f competitor-etf-report.csv
-
-          Write-Host "Staged files:"
-          git diff --cached --name-status
-
-          $stagedFiles = git diff --cached --name-only
-
-          if ($stagedFiles -notcontains "competitor-etf-report.csv") {
-              Write-Error "ERROR: competitor-etf-report.csv was NOT staged!"
-              exit 1
+          # No staged content change → exit cleanly (or fail if you prefer)
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "No changes to commit (file identical or not staged)."
+            exit 0
           }
-
-          Write-Host "CSV successfully staged."
 
           git commit -m "Update competitor ETF report [skip ci]"
 
-          git push origin HEAD:master
+          $branch = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "main" }
+          git push origin "HEAD:$branch"
+          Write-Host "Pushed commit to $branch"
 
-          Write-Host "Push completed successfully."
-
-      # IMPORTANT:
-      # This is OUTSIDE the PowerShell run block
-
+      # 4) Optional: keep artifact for debugging
       - name: Upload Artifact
         if: always()
         uses: actions/upload-artifact@v4
