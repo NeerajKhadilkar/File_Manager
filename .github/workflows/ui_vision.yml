@@ -1,4 +1,4 @@
-name: Run SQL Extract & Commit Excel
+name: Run SEC Filing Extract & Commit Excel
 
 on:
   workflow_dispatch:
@@ -7,8 +7,8 @@ permissions:
   contents: write
 
 jobs:
-  sql-extract:
-    runs-on: self-hosted
+  sec-extract:
+    runs-on: windows-latest
 
     steps:
       - name: Checkout Repository
@@ -24,123 +24,271 @@ jobs:
       - name: Install Python Dependencies
         shell: powershell
         run: |
-          pip install pyodbc pandas pytz openpyxl
+          pip install pandas requests beautifulsoup4 openpyxl pytz lxml
 
-      - name: Install ODBC Driver 17 for SQL Server
+      - name: Verify Input Excel File Exists
         shell: powershell
         run: |
-          Write-Host "Downloading ODBC Driver 17 for SQL Server..."
-          $url = "https://go.microsoft.com/fwlink/?linkid=2249006"
-          $installer = "$env:TEMP\msodbcsql17.msi"
-          Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
-          Write-Host "Installing ODBC Driver 17..."
-          Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /quiet /norestart IACCEPTMSODBCSQLLICENSETERMS=YES" -Wait
-          Write-Host "ODBC Driver 17 installed successfully."
-
-      - name: Verify ODBC Driver Installation
-        shell: powershell
-        run: |
-          $drivers = Get-OdbcDriver -Name "*SQL Server*" -Platform "64-bit" | Select-Object -ExpandProperty Name
-          if ($drivers) {
-            Write-Host "Installed ODBC drivers: $drivers"
-          } else {
-            Write-Error "No SQL Server ODBC driver found. Aborting."
+          $files = Get-ChildItem -Path "." -Recurse -Filter "sql_all_records_*.xlsx"
+          if (-not $files) {
+            Write-Error "No sql_all_records_*.xlsx file found in the repository. Please commit it to master first."
             exit 1
+          }
+          foreach ($f in $files) {
+            Write-Host "Found input file: $($f.FullName)"
           }
 
       - name: Write Python Script
         shell: powershell
         run: |
           @'
-          import pyodbc
-          import pandas as pd
+          import re
           import time
+          import pandas as pd
+          import requests
           import os
+          import xml.etree.ElementTree as ET
+          from bs4 import BeautifulSoup
           from datetime import datetime
           import pytz
+          import glob
 
           ist = pytz.timezone("Asia/Kolkata")
           now_ist = datetime.now(ist)
           date_suffix = now_ist.strftime("%d_%m")
 
-          # Use repo root as output path (OneDrive not available in CI)
-          path = os.path.join(os.path.abspath("."), "output", date_suffix)
-          os.makedirs(path, exist_ok=True)
-          print(f"Output directory: {path}")
+          HEADERS = {
+              "User-Agent": "Neeraj Khadilkar neeraj.khadilkar123@gmail.com",
+              "Accept-Encoding": "gzip, deflate",
+          }
 
-          def sql_connection(retries=5, delay=60):
-              attempt = 0
-              while attempt < retries:
-                  try:
-                      cnxn = pyodbc.connect(
-                          Driver="ODBC Driver 17 for SQL Server",
-                          Server="dcprdreportdb.dcc8fc7.eas.morningstar.com,1433",
-                          DATABASE="master",
-                          UID="DataReader",
-                          PWD="Read4Equity",
-                          TrustServerCertificate="yes",
-                      )
-                      print(f"Connected on attempt {attempt + 1}")
-                      return cnxn
-                  except pyodbc.Error as e:
-                      attempt += 1
-                      print(f"Connection attempt {attempt} failed: {e}")
-                      if attempt < retries:
-                          print(f"Retrying in {delay}s...")
-                          time.sleep(delay)
-              raise ConnectionError(f"Failed to connect after {retries} attempts.")
+          # -------------------------------------------------------------
+          # 1. Load base data from repo (find the sql_all_records file)
+          # -------------------------------------------------------------
+          repo_root = os.path.abspath(".")
 
-          SQL_QUERY = """
-          SELECT DISTINCT
-              b.SecId,
-              b.FundId,
-              d.PerformanceId,
-              a.ExchangeId,
-              b.Name,
-              b.EffectiveDate,
-              b.InceptionDate AS Inception_Date,
-              a.Identifier AS ContractID,
-              b.LegalName,
-              b.Status,
-              b.PendingType,
-              c.Universe,
-              b.LastUpdate,
-              a.IdentifierType
-          FROM CurrentData.dbo.FundClassBasic b
-          INNER JOIN SecurityData.dbo.SecuritySearch c
-              ON b.SecId = c.SecId
-          LEFT JOIN CurrentData.dbo.PerformanceBasic d
-              ON d.InvestmentId = b.SecId
-          INNER JOIN CurrentData.dbo.InvestmentIdentifier a
-              ON b.SecId = a.InvestmentId
-          WHERE c.CountryId = 'USA'
-          AND c.Status = '2'
-          AND b.PendingType = 3
-          AND a.IdentifierType = 20
-          AND c.Universe IN ('/OEIC/', '/OEIC/MM/')
-          ORDER BY b.InceptionDate DESC;
-          """
+          # Find the input file — search entire repo
+          matches = glob.glob(os.path.join(repo_root, "**", "sql_all_records_*.xlsx"), recursive=True)
+          if not matches:
+              raise FileNotFoundError("sql_all_records_*.xlsx not found in repository.")
 
-          print("\n=== Connecting to SQL Server ===")
-          cnxn = sql_connection()
+          input_file = matches[0]
+          print(f"Using input file: {input_file}")
 
-          print("=== Running SQL Query ===")
-          df = pd.read_sql(SQL_QUERY, cnxn)
-          cnxn.close()
+          data_df = pd.read_excel(input_file)
+          data_df.rename(columns={"ContractID": "CIK"}, inplace=True)
+          print(f"Loaded {len(data_df)} rows from input file.")
 
-          df.rename(columns={"ContractID": "CIK"}, inplace=True)
-          print(f"Rows fetched: {len(df)}")
-          print(f"Columns: {df.columns.tolist()}")
+          # Output goes to output/<date_suffix>/ in repo root
+          out_dir = os.path.join(repo_root, "output", date_suffix)
+          os.makedirs(out_dir, exist_ok=True)
 
-          out_file = os.path.join(path, f"sql_all_records_{date_suffix}.xlsx")
-          df.to_excel(out_file, index=False)
-          print(f"\nSaved: {out_file}")
-          '@ | Out-File -FilePath "run_sql_extract.py" -Encoding utf8
+          filing_file_name = f"filing_dates_output_v1_with_status_{date_suffix}_v1.xlsx"
+          filing_file_path = os.path.join(out_dir, filing_file_name)
 
-      - name: Run SQL Extract Script
+          cik_url_list = [
+              cid
+              for cid in data_df["CIK"].dropna().unique()
+              if cid and str(cid).lower() != "nan"
+          ]
+          print(f"Total CIKs to process: {len(cik_url_list)}")
+
+          # -------------------------------------------------------------
+          # 2. Tickers from SEC mutual fund ticker file
+          # -------------------------------------------------------------
+          print("\n=== Fetching SEC mutual fund tickers ===")
+          mf = requests.get(
+              "https://www.sec.gov/files/company_tickers_mf.json",
+              headers=HEADERS
+          ).json()
+
+          rows = [dict(zip(mf["fields"], r)) for r in mf["data"]]
+          by_class = {r["classId"]: r for r in rows}
+
+          ticker_records = []
+          for cid in cik_url_list:
+              matched = by_class.get(cid)
+              symbol = matched.get("symbol") if matched else None
+              ticker_records.append({"CIK": cid, "Ticker": symbol})
+
+          ticker_df = pd.DataFrame(ticker_records).drop_duplicates(subset="CIK")
+          print(f"Tickers found: {ticker_df['Ticker'].notna().sum()} / {len(ticker_df)}")
+
+          # -------------------------------------------------------------
+          # 3. Filing dates from SEC EDGAR atom feed
+          # -------------------------------------------------------------
+          print("\n=== Fetching SEC EDGAR filing dates ===")
+          filing_type1 = "485BPOS"
+          filing_type2 = "485APOS"
+          ns = {"a": "http://www.w3.org/2005/Atom"}
+          filing_records = []
+
+          for i, cik in enumerate(cik_url_list):
+              url = (
+                  "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
+                  f"&CIK={cik}&owner=include&count=40&output=atom"
+              )
+              print(f"  [{i+1}/{len(cik_url_list)}] {url}", flush=True)
+
+              try:
+                  resp = requests.get(url, headers=HEADERS, timeout=30)
+                  root = ET.fromstring(resp.content)
+              except Exception as e:
+                  print(f"  ERROR fetching {cik}: {e}", flush=True)
+                  filing_records.append({
+                      "CIK": cik,
+                      f"{filing_type1}_latest": None,
+                      f"{filing_type2}_latest": None,
+                      f"{filing_type1}_all_dates": None,
+                      f"{filing_type2}_all_dates": None,
+                  })
+                  continue
+
+              type1_dates = set()
+              type2_dates = set()
+
+              for e in root.findall("a:entry", ns):
+                  cat_el  = e.find("a:category", ns)
+                  date_el = e.find("a:content/a:filing-date", ns)
+                  if cat_el is None or date_el is None:
+                      continue
+                  term      = cat_el.attrib.get("term")
+                  date_text = date_el.text
+                  if term == filing_type1:
+                      type1_dates.add(date_text)
+                  elif term == filing_type2:
+                      type2_dates.add(date_text)
+
+              type1_sorted = sorted(type1_dates, reverse=True)
+              type2_sorted = sorted(type2_dates, reverse=True)
+
+              filing_records.append({
+                  "CIK": cik,
+                  f"{filing_type1}_latest": type1_sorted[0] if type1_sorted else None,
+                  f"{filing_type2}_latest": type2_sorted[0] if type2_sorted else None,
+                  f"{filing_type1}_all_dates": "; ".join(type1_sorted) if type1_sorted else None,
+                  f"{filing_type2}_all_dates": "; ".join(type2_sorted) if type2_sorted else None,
+              })
+
+              time.sleep(0.15)  # be gentle on SEC servers
+
+          filing_df = pd.DataFrame(filing_records).drop_duplicates(subset="CIK")
+
+          # -------------------------------------------------------------
+          # 4. Firm Name / Fund Name / Share Class from browse-edgar page
+          # -------------------------------------------------------------
+          print("\n=== Fetching fund names from SEC EDGAR ===")
+
+          def get_fund_names(class_or_series_id):
+              url = (
+                  f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
+                  f"&CIK={class_or_series_id}&view=mutual-fund&scd=series&Find=Search"
+              )
+              try:
+                  response = requests.get(url, headers=HEADERS, timeout=10)
+              except Exception as e:
+                  print(f"  ERROR fetching fund names for {class_or_series_id}: {e}", flush=True)
+                  return {"Firm Name": None, "Fund Name": None, "Share Class": None, "Symbol": None}
+
+              if response.status_code != 200:
+                  return {"Firm Name": None, "Fund Name": None, "Share Class": None, "Symbol": None}
+
+              soup = BeautifulSoup(response.text, "html.parser")
+              firm_name  = ""
+              fund_name  = ""
+              share_class = ""
+              symbol     = ""
+
+              firm_tag = soup.find("a", href=re.compile(r"scd=series.*view=mutual-fund"))
+              if firm_tag:
+                  firm_name = firm_tag.get_text(strip=True)
+
+              for row in soup.find_all("tr"):
+                  series_link = row.find("a", href=re.compile(r"CIK=S\d+", re.I))
+                  if series_link:
+                      series_td = series_link.find_parent("td")
+                      next_td   = series_td.find_next_sibling("td")
+                      if next_td:
+                          fund_name = next_td.get_text(strip=True)
+
+                  class_link = row.find(
+                      "a", href=re.compile(rf"CIK={re.escape(class_or_series_id)}", re.I)
+                  )
+                  if class_link:
+                      class_td  = class_link.find_parent("td")
+                      name_td   = class_td.find_next_sibling("td")
+                      if name_td:
+                          share_class = name_td.get_text(strip=True)
+                          symbol_td   = name_td.find_next_sibling("td")
+                          if symbol_td:
+                              symbol = symbol_td.get_text(strip=True)
+                      break
+
+              return {
+                  "Firm Name":   firm_name,
+                  "Fund Name":   fund_name,
+                  "Share Class": share_class,
+                  "Symbol":      symbol,
+              }
+
+          fund_name_records = []
+          for i, cid in enumerate(cik_url_list):
+              info = get_fund_names(cid)
+              print(f"  [{i+1}/{len(cik_url_list)}] {cid} -> {info}", flush=True)
+              fund_name_records.append({"CIK": cid, **info})
+              time.sleep(0.15)
+
+          fund_names_df = pd.DataFrame(fund_name_records).drop_duplicates(subset="CIK")
+
+          # -------------------------------------------------------------
+          # 5. Collate everything into one final DataFrame
+          # -------------------------------------------------------------
+          print("\n=== Merging all data ===")
+          merged_df = (
+              data_df
+              .merge(ticker_df,    on="CIK", how="left", validate="m:1")
+              .merge(filing_df,    on="CIK", how="left", validate="m:1")
+              .merge(fund_names_df, on="CIK", how="left", validate="m:1")
+          )
+
+          base_cols = ["SecId", "FundId", "PerformanceId", "EffectiveDate",
+                       "Inception_Date", "CIK", "LegalName"]
+          new_cols  = [
+              "Firm Name", "Fund Name", "Share Class", "Ticker",
+              f"{filing_type1}_latest", f"{filing_type2}_latest",
+              f"{filing_type1}_all_dates", f"{filing_type2}_all_dates",
+          ]
+
+          final_df = merged_df[[c for c in base_cols + new_cols if c in merged_df.columns]]
+
+          print("data_df shape :", data_df.shape)
+          print("final_df shape:", final_df.shape)
+          print("Missing Tickers   :", final_df["Ticker"].isna().sum())
+          print(f"Missing {filing_type1}:", final_df[f"{filing_type1}_latest"].isna().sum())
+          print(f"Missing {filing_type2}:", final_df[f"{filing_type2}_latest"].isna().sum())
+
+          # -------------------------------------------------------------
+          # 6. Compute Status
+          # -------------------------------------------------------------
+          df = final_df.copy()
+          df["Inception_Date"]  = pd.to_datetime(df["Inception_Date"],  errors="coerce")
+          df["485BPOS_latest"]  = pd.to_datetime(df["485BPOS_latest"],  errors="coerce")
+          df["Days_Diff_Inception_485BPOS"] = (
+              df["485BPOS_latest"] - df["Inception_Date"]
+          ).dt.days.abs()
+          df["Status"] = None
+          df.loc[df["Days_Diff_Inception_485BPOS"] <= 7, "Status"] = "Activated"
+
+          print("\nTotal Activated:", (df["Status"] == "Activated").sum())
+
+          df.to_excel(filing_file_path, index=False)
+          print(f"\nSaved: {filing_file_path}")
+          '@ | Out-File -FilePath "run_sec_extract.py" -Encoding utf8
+
+      - name: Run SEC Extract Script
         shell: powershell
         run: |
-          python run_sql_extract.py
+          python run_sec_extract.py
 
       - name: List Generated Files
         shell: powershell
@@ -158,24 +306,22 @@ jobs:
           git fetch origin master
           git checkout master
 
-          # Stage all xlsx files under output/
-          $files = Get-ChildItem -Path ".\output" -Recurse -Filter "*.xlsx" | Select-Object -ExpandProperty FullName
+          $files = Get-ChildItem -Path ".\output" -Recurse -Filter "*.xlsx"
           if (-not $files) {
             Write-Host "No Excel files found to commit."
             exit 0
           }
 
           foreach ($f in $files) {
-            git add -f $f
-            Write-Host "Staged: $f"
+            git add -f $f.FullName
+            Write-Host "Staged: $($f.FullName)"
           }
 
           $status = git status --porcelain
           if ([string]::IsNullOrWhiteSpace($status)) {
             Write-Host "No changes detected. Nothing to commit."
           } else {
-            Write-Host "Committing changes..."
-            git commit -m "Auto-update SQL extract output [skip ci]"
+            git commit -m "Auto-update SEC filing extract output [skip ci]"
             git push origin master
             Write-Host "Pushed to master."
           }
@@ -184,6 +330,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sql-extract-output
+          name: sec-filing-extract
           path: output/**/*.xlsx
           if-no-files-found: warn
+          retention-days: 90
