@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   sql-extract:
-    runs-on: windows-latest
+    runs-on: self-hosted
 
     steps:
       - name: Checkout Repository
