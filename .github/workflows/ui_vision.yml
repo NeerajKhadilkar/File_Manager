@@ -1,140 +1,149 @@
 name: UI Vision - us_etf_ttm_executor
 
 on:
-  workflow_dispatch:          # manual trigger
+  workflow_dispatch:                 # manual run
   schedule:
-    - cron: '0 3 * * *'       # 03:00 UTC daily – change as needed
+    - cron: '0 3 * * *'              # 03:00 UTC daily – change if needed
   push:
     branches:
-      - collated_morn_exchange_unprocessed_records_filtered
+      - '**'                         # or put your real branch name here
     paths:
       - 'collated_morn_exchange_unprocessed_records_filtered.csv'
       - 'us_etf_ttm_executor.json'
       - '.github/workflows/us-etf-ttm-executor.yml'
 
 jobs:
-  run-ui-vision:
-    runs-on: ubuntu-latest
-    timeout-minutes: 180      # long-running macro – increase if needed
+  sec-extract:
+    runs-on: windows-latest
+    timeout-minutes: 180
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: collated_morn_exchange_unprocessed_records_filtered
+        # Do NOT force a ref unless you are 100% sure the branch exists on origin
 
-      - name: Install dependencies
+      - name: Show current branch and files
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            chromium-browser \
-            xvfb \
-            x11-utils \
-            fonts-liberation \
-            libnss3 \
-            libatk-bridge2.0-0 \
-            libgtk-3-0 \
-            libx11-xcb1 \
-            libxcb-dri3-0 \
-            libdrm2 \
-            libgbm1 \
-            libasound2
+          Write-Host "GITHUB_REF      = $env:GITHUB_REF"
+          Write-Host "GITHUB_REF_NAME = $env:GITHUB_REF_NAME"
+          Get-ChildItem -Force
+          Write-Host "----- CSV / JSON files -----"
+          Get-ChildItem -Recurse -Include *.csv,*.json | Select-Object FullName
 
-      - name: Prepare working directories
+      - name: Prepare directories
+        shell: pwsh
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/uivision/macros"
-          mkdir -p "$GITHUB_WORKSPACE/uivision/datasources"
-          mkdir -p "$GITHUB_WORKSPACE/uivision/logs"
-          mkdir -p "$GITHUB_WORKSPACE/output"
+          New-Item -ItemType Directory -Force -Path uivision\macros, uivision\datasources, uivision\logs, output | Out-Null
 
-          # Place the macro (you must have the JSON in the repo)
-          if [ -f "us_etf_ttm_executor.json" ]; then
-            cp us_etf_ttm_executor.json "$GITHUB_WORKSPACE/uivision/macros/"
-          else
-            echo "ERROR: us_etf_ttm_executor.json not found in repository root"
+          if (Test-Path "us_etf_ttm_executor.json") {
+            Copy-Item "us_etf_ttm_executor.json" "uivision\macros\"
+          } else {
+            Write-Error "us_etf_ttm_executor.json not found in repository root"
             exit 1
-          fi
+          }
 
-          # Place the CSV that the macro reads
-          if [ -f "collated_morn_exchange_unprocessed_records_filtered.csv" ]; then
-            cp collated_morn_exchange_unprocessed_records_filtered.csv "$GITHUB_WORKSPACE/uivision/datasources/"
-          else
-            echo "ERROR: collated_morn_exchange_unprocessed_records_filtered.csv not found"
+          if (Test-Path "collated_morn_exchange_unprocessed_records_filtered.csv") {
+            Copy-Item "collated_morn_exchange_unprocessed_records_filtered.csv" "uivision\datasources\"
+          } else {
+            Write-Error "collated_morn_exchange_unprocessed_records_filtered.csv not found"
             exit 1
-          fi
+          }
 
-      - name: Create minimal ui.vision.html launcher
+      - name: Create ui.vision.html launcher
+        shell: pwsh
         run: |
-          cat > "$GITHUB_WORKSPACE/uivision/ui.vision.html" << 'EOF'
+          @"
           <!DOCTYPE html>
           <html>
           <head><title>UI.Vision Command Line Launcher</title></head>
           <body>
             <h1>UI.Vision Command Line API</h1>
             <p>This page is used to start macros via URL parameters.</p>
-            <script>
-              // The real UI.Vision extension intercepts this page when loaded with the correct parameters.
-              console.log("UI.Vision launcher loaded. Macro should start via extension.");
-            </script>
           </body>
           </html>
-          EOF
+          "@ | Set-Content -Path "uivision\ui.vision.html" -Encoding UTF8
 
-      - name: Start Xvfb and run Chromium with UI.Vision attempt
-        env:
-          DISPLAY: :99
+      - name: Locate Chrome / Edge
+        id: browser
+        shell: pwsh
         run: |
-          # Start virtual display
-          Xvfb :99 -screen 0 1920x1080x24 -ac &
-          sleep 3
+          $chrome = @(
+            "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe",
+            "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+            "${env:LOCALAPPDATA}\Google\Chrome\Application\chrome.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
-          # NOTE: Official Chrome Web Store extension cannot be easily installed
-          # in CI. This is the closest possible command-line style launch.
-          # In practice you will need a self-hosted runner with the extension
-          # already installed, or a custom Docker image that contains it.
+          $edge = @(
+            "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+            "${env:ProgramFiles}\Microsoft\Edge\Application\msedge.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
-          CHROME_BIN=$(which chromium-browser || which chromium || which google-chrome)
+          if ($chrome) {
+            Write-Host "Using Chrome: $chrome"
+            echo "BROWSER=$chrome" >> $env:GITHUB_OUTPUT
+          } elseif ($edge) {
+            Write-Host "Using Edge: $edge"
+            echo "BROWSER=$edge" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Error "Neither Chrome nor Edge found"
+            exit 1
+          }
 
-          "$CHROME_BIN" \
-            --no-sandbox \
-            --disable-dev-shm-usage \
-            --disable-gpu \
-            --window-size=1920,1080 \
-            --user-data-dir=/tmp/chrome-user-data \
-            "file://$GITHUB_WORKSPACE/uivision/ui.vision.html?direct=1&macro=us_etf_ttm_executor&closeRPA=1&closeBrowser=1&savelog=$GITHUB_WORKSPACE/uivision/logs/run.log" \
-            > "$GITHUB_WORKSPACE/uivision/logs/chrome.stdout.log" 2>&1 &
+      - name: Launch browser with UI.Vision command-line URL (skeleton)
+        shell: pwsh
+        run: |
+          $browser = "${{ steps.browser.outputs.BROWSER }}"
+          $workspace = $env:GITHUB_WORKSPACE
+          $html = "file:///$($workspace.Replace('\','/'))/uivision/ui.vision.html"
+          $log  = "$workspace\uivision\logs\run.log"
+          $url  = "${html}?direct=1&macro=us_etf_ttm_executor&closeRPA=1&closeBrowser=1&savelog=$($log.Replace('\','/'))"
 
-          CHROME_PID=$!
-          echo "Chromium PID: $CHROME_PID"
+          Write-Host "Starting: $browser"
+          Write-Host "URL: $url"
 
-          # Wait a long time for the macro (adjust according to your ticker count)
-          # The real UI.Vision extension would write Status=OK / Status=Error to the log.
-          TIMEOUT=7200   # 2 hours
-          SECONDS=0
-          while [ $SECONDS -lt $TIMEOUT ]; do
-            if [ -f "$GITHUB_WORKSPACE/uivision/logs/run.log" ]; then
-              if grep -q "Status=OK\|Status=Error\|Macro completed" "$GITHUB_WORKSPACE/uivision/logs/run.log"; then
-                echo "Macro finished according to log"
+          # Start browser (UI.Vision extension must already be present for a real run)
+          $proc = Start-Process -FilePath $browser `
+            -ArgumentList @(
+              "--no-first-run",
+              "--no-default-browser-check",
+              "--disable-popup-blocking",
+              "--user-data-dir=$env:TEMP\chrome-user-data-gha",
+              $url
+            ) -PassThru
+
+          Write-Host "Browser PID: $($proc.Id)"
+
+          # Wait up to 2 hours or until log shows completion
+          $timeoutSec = 7200
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          while ($sw.Elapsed.TotalSeconds -lt $timeoutSec) {
+            if (Test-Path $log) {
+              $content = Get-Content $log -Raw -ErrorAction SilentlyContinue
+              if ($content -match "Status=OK|Status=Error|Macro completed") {
+                Write-Host "Macro finished according to log"
                 break
-              fi
-            fi
-            sleep 30
-          done
+              }
+            }
+            Start-Sleep -Seconds 30
+          }
 
-          # Kill Chromium if still running
-          kill $CHROME_PID 2>/dev/null || true
-          pkill -f chromium || true
-          pkill -f chrome || true
+          # Kill browser if still running
+          if (-not $proc.HasExited) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+          Get-Process chrome, msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-      - name: Collect output CSVs and logs
+      - name: Collect output
         if: always()
+        shell: pwsh
         run: |
-          echo "=== Looking for generated CSVs ==="
-          find "$GITHUB_WORKSPACE" -name "competitor_etf_report_*.csv" -o -name "*.csv" | head -50
-
-          # Copy any report CSVs that the macro may have written
-          find "$GITHUB_WORKSPACE" -name "competitor_etf_report_*.csv" -exec cp {} "$GITHUB_WORKSPACE/output/" \; || true
-          cp -r "$GITHUB_WORKSPACE/uivision/logs" "$GITHUB_WORKSPACE/output/" || true
+          Get-ChildItem -Recurse -Filter "competitor_etf_report_*.csv" -ErrorAction SilentlyContinue |
+            Copy-Item -Destination "output\" -Force -ErrorAction SilentlyContinue
+          if (Test-Path "uivision\logs") {
+            Copy-Item "uivision\logs\*" "output\" -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem "output" -ErrorAction SilentlyContinue
 
       - name: Upload artifacts
         if: always()
@@ -145,13 +154,3 @@ jobs:
             output/
             uivision/logs/
           retention-days: 14
-
-      - name: Fail if no report was produced (optional)
-        if: always()
-        run: |
-          if ! ls output/competitor_etf_report_*.csv 1> /dev/null 2>&1; then
-            echo "WARNING: No competitor_etf_report_*.csv found. The UI.Vision extension almost certainly did not run."
-            echo "This workflow is only a skeleton. For production use a self-hosted runner or re-implement with Playwright."
-            # Uncomment the next line if you want the job to fail
-            # exit 1
-          fi
